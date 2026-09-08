@@ -145,16 +145,20 @@ documentation with standalone review value, it needs to diff in PRs, and "instal
 any new repository" reads as *becoming part of* that repo. Flagged because a team that
 regards it as regenerable cache would want the opposite.
 
-### A6 — "Only conda" — does that forbid `pip install` inside the conda env? ⚠
+### A6 — "Only conda" — does that forbid `pip install` inside the conda env? ✅ DECIDED
 
-Strictest reading: yes, every dependency must resolve from conda channels.
+**Resolved by the owner, 2026-09-08: strict conda-only. No pip fallback.** Every
+dependency must resolve from conda channels. This is no longer an open question.
 
-**Chosen: strict reading.** This is consequential — I verified that `NodeGraphQt`, the
-most obvious off-the-shelf node editor, **is not on conda-forge** (`conda search` returns
-no match), while `pyside6` **is** (6.11.2). The strict reading therefore forces a custom
-node editor or vendoring (§10). If the owner intends "conda for the environment, pip
-inside it is fine," the UI plan simplifies substantially — **this is the single highest-value
-question to resolve before implementation.**
+Consequence, verified rather than assumed: `NodeGraphQt` — the most obvious off-the-shelf
+node editor — **is not on conda-forge** (`conda search -c conda-forge nodegraphqt` returns
+no match), while `pyside6` **is** (6.11.2). The strict constraint therefore rules
+NodeGraphQt out as a dependency.
+
+**Locked design:** the node editor is built on **PySide6 + a custom `QGraphicsView`/
+`QGraphicsScene` implementation** (§11.1). Vendoring NodeGraphQt's source was considered
+and **rejected** — see §11.1. This decision is final for v1 and downstream sections should
+be read as settled, not provisional.
 
 ### A7 — "Install conda if not present"
 
@@ -190,8 +194,15 @@ delete existing nodes/edges.
 
 **Chosen:** pluggable "grounders" keyed by file extension. v1 ships a regex grounder
 (sufficient for the symbol-existence check of V6) plus a Julia-aware and Python-aware
-grounder. Full AST parsing (tree-sitter) is deferred; note that tree-sitter Julia support
-is not guaranteed on conda-forge, which interacts with A6.
+grounder. Full AST parsing (tree-sitter) is deferred.
+
+Now that A6 is decided as strict conda-only, this hardens into a constraint rather than a
+note: **any future grounder may only use parsers installable from conda channels.** Python
+gets AST grounding free via the stdlib `ast` module. Julia has no conda-installable Python
+parser I would rely on, so the Julia grounder stays regex-based over `function` / `struct` /
+`macro` / `const` declaration forms — adequate for V6, which asks only whether a symbol
+occurs in a file, not for a full parse tree. Verify conda-forge availability before
+adopting any parser dependency.
 
 ### A12 — Conflict between UI edits and agent regeneration ⚠
 
@@ -984,26 +995,47 @@ byte-preserved across recompiles.
 
 ### 11.1 Stack, and why
 
-Constraints: Python, desktop, **conda-only dependencies** (A6), node-graph editor with
-sockets and noodles.
+Constraints: Python, desktop, **strict conda-only dependencies** (A6 — decided, no pip
+fallback), node-graph editor with sockets and noodles.
 
 **Verified while writing this plan:** `pyside6` **is** on conda-forge (6.11.2);
 `nodegraphqt` **is not** (`conda search -c conda-forge nodegraphqt` → no match).
 
+**This stack is locked** as of 2026-09-08. It is not a provisional recommendation.
+
 | Layer | Choice | conda-forge | Why |
 |---|---|---|---|
 | GUI toolkit | **PySide6** (Qt 6) | ✔ 6.11.2 | Official Qt binding, LGPL, mature `QGraphicsView` framework — the right substrate for a node editor. `pyqtgraph`/matplotlib canvases are wrong for interactive node editing. |
-| Node canvas | **Custom, on `QGraphicsScene`/`QGraphicsView`** | n/a (our code) | Forced by A6, since NodeGraphQt is unavailable. `QGraphicsView` gives pan/zoom, hit-testing, item transforms, and a scene graph for free; nodes/sockets/noodles are `QGraphicsItem` subclasses. Estimated ~1,200–1,800 LOC. |
+| Node canvas | **Custom, on `QGraphicsScene`/`QGraphicsView`** | n/a (our code) | **Final.** Required by A6, since NodeGraphQt is not conda-installable. `QGraphicsView` gives pan/zoom, hit-testing, item transforms, and a scene graph for free; nodes/sockets/noodles are `QGraphicsItem` subclasses. Estimated ~1,200–1,800 LOC. |
 | Noodles | `QPainterPath` cubic Bézier | n/a | Standard for this UI class: horizontal-tangent cubic between socket anchors. |
 | Layout | **NetworkX** + custom layered pass | ✔ | Longest-path layering + barycentre crossing reduction. Deterministic (fixed seed) so positions don't churn in git. Graphviz is a heavier, non-Python-native dependency. |
 | Markdown render | **markdown-it-py** → Qt rich text | ✔ | For the doc side panel. |
 | LaTeX render | **matplotlib** mathtext → `QPixmap` | ✔ | The docs are LaTeX-heavy and Qt has no math renderer. mathtext needs no TeX install — important for portability. Full TeX quality is not needed for a side panel. |
 | Config / schema | **PyYAML**, **jsonschema** | ✔ | |
 
-**Option B if A6 relaxes:** vendor NodeGraphQt's source into `src/vulcan_map/ui/vendor/`
-(permissively licensed). Vendored source is not a package-manager dependency, so this is
-arguably compliant even under the strict reading — but it is a real maintenance burden and
-I would not take it without the owner's agreement.
+**Rejected alternative — vendoring NodeGraphQt.** Copying its source into
+`src/vulcan_map/ui/vendor/` would arguably satisfy the letter of the conda-only rule
+(vendored source is not a package-manager dependency), but it was **rejected** on
+2026-09-08: it imports an unmaintained-by-us dependency's full surface area, drags in its
+own Qt-binding assumptions (it targets PySide2/Qt5 idioms), and would have to be patched
+rather than upgraded. A purpose-built scene we control is smaller in practice than the
+subset of NodeGraphQt we would end up maintaining.
+
+**Consequences of the locked choice** — carried into the build order (§13):
+
+- Milestones 6–7 (UI read-only, then UI editing) are the largest in the project; budget
+  accordingly. The custom editor must implement, from scratch: node items with rounded-rect
+  chrome and title bars, socket hit-targets with snap tolerance, cubic-Bézier noodles with
+  live drag preview, rubber-band and click selection, pan/zoom with sensible zoom-to-cursor,
+  a grid background, and z-ordering so noodles render behind nodes.
+- No third-party node-editor API constrains the data model, so `QGraphicsItem` subclasses
+  can bind directly to the schema in §6 — sockets map 1:1 onto frontmatter-declared
+  inputs/outputs with no adapter layer.
+- The P3 round-trip (§11.3) is simpler to guarantee, since there is no library-owned
+  internal graph state that could diverge from `resolved.json`. This was a real risk with
+  NodeGraphQt, which maintains its own node/port model.
+- `environment.yml` stays fully solvable from conda-forge alone, so `vulcan doctor` can
+  verify the environment without special-casing pip-installed packages.
 
 ### 11.2 Window layout
 
@@ -1143,22 +1175,31 @@ of this project, and it is testable without a GUI.
 
 ---
 
-## 14. Open questions for the owner
+## 14. Decisions and open questions
+
+### 14.1 Decided — locked, do not revisit without an explicit change request
+
+| Ref | Decision | Date |
+|---|---|---|
+| **A6** | **Strict conda-only; no pip fallback.** All dependencies resolve from conda channels. | 2026-09-08 |
+| **A6 / §11.1** | **UI stack: PySide6 + a custom `QGraphicsView`/`QGraphicsScene` node editor.** NodeGraphQt is ruled out (not conda-installable); vendoring it was considered and rejected. | 2026-09-08 |
+
+These are settled inputs to the build order in §13, not recommendations. §11.1 carries the
+consequences.
+
+### 14.2 Still open
 
 Ordered by how much rework a wrong guess causes.
 
-1. **A6 — is `pip` inside the conda env acceptable?** Highest-impact question. "No" means
-   hand-writing the node editor (milestones 6–7 roughly triple); "yes" opens NodeGraphQt
-   and cuts that work substantially.
-2. **A2/A9 — master chart granularity.** I am planning module-level master + function-level
+1. **A2/A9 — master chart granularity.** I am planning module-level master + function-level
    subcharts. If you want one exhaustive function-level master, say so — it changes layout,
    performance budget, and what "complete" means for coverage.
-3. **A5 — is `vulcan_mind/` committed to the target repo?** I am assuming yes.
-4. **A1 — is dashed `feedback` edges the right treatment for recursion?** The alternative is
+2. **A5 — is `vulcan_mind/` committed to the target repo?** I am assuming yes.
+3. **A1 — is dashed `feedback` edges the right treatment for recursion?** The alternative is
    refusing to map cyclic call structures, which I think is worse.
-5. **A12 — human-edit precedence.** I am assuming human edits are sticky and agents may not
+4. **A12 — human-edit precedence.** I am assuming human edits are sticky and agents may not
    remove them without a flag.
-6. **Which agents must be supported at install time?** Adapters are cheap, but each needs
+5. **Which agents must be supported at install time?** Adapters are cheap, but each needs
    its own format and testing. I am planning Claude Code + Cursor + generic `AGENTS.md`.
-7. **Should `vulcan check` run in CI** for repos that adopt this? It would keep maps from
+6. **Should `vulcan check` run in CI** for repos that adopt this? It would keep maps from
    going stale (V17 catches drift), but it makes the map a merge blocker.
