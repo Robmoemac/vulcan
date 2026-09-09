@@ -969,6 +969,37 @@ subgraph**, not just the first node you touched. If you deepened `animate_sequen
 left its three children coarse, you are not done.
 ```
 
+### 9.3b Handoff between agents (D10)
+
+A map is not necessarily built by one agent in one sitting. It may be started by
+one model, continued by another vendor's after a rate limit, and finished by a
+third — none of which can see the others' transcripts, and each with a different
+context window. This was not hypothetical: during the SpaceAGORA.jl dogfooding run
+a second agent from another vendor was asked to finish the job and reported it
+complete, while the repository showed no evidence it had changed anything.
+
+**Therefore no agent's account of progress is admissible, including its own.**
+Three mechanisms replace it, and all of them are tool-generated:
+
+| Artefact | Written by | Answers |
+|---|---|---|
+| `vulcan_mind/HANDOFF.md` | `vulcan compile` | "Is this done, and what is outstanding?" — committed, so it survives cloning and hand-off |
+| `vulcan_mind/_build/status.json` | `vulcan compile` | the same, machine-readable, with the complete outstanding list |
+| `vulcan check --strict --proof` | on demand | a quotable attestation naming the commit and the verdict |
+
+`vulcan status` recomputes rather than reading the stored file, because a stale
+`PASS` is precisely the failure this exists to prevent.
+
+**The proof block is mandatory in any completion report**, and it prints `FAIL`
+as readily as `PASS` — so omitting it is itself evidence the gate did not pass.
+The rule lives in `_shared/NOT-DONE.md`, which every adapter includes, and is
+repeated above the fold in the `AGENTS.md` header so an agent that skims the top
+still sees it.
+
+HANDOFF.md is deliberately free of wall-clock timestamps so that compiling twice
+leaves the tree byte-identical (§7.2); the timestamp lives in the gitignored
+`status.json`.
+
 ### 9.4 Installing skills into a target repo
 
 Agents look in different places. `vulcan init` writes adapter-specific copies from one
@@ -1310,6 +1341,7 @@ implementation.**
 | D7 | **§9.4** | **Baseline agent adapters: Claude Code, Codex, Devin, generic `AGENTS.md`.** Cursor is deliberately excluded from the baseline; adapters are additive and can be added later. | 2026-09-08 |
 | D8 | **§8.1** | **`vulcan check` never runs in CI and installs no pre-commit hook.** It runs during map creation and edits — inside the skill's own batch loop, at the completion gate, and on every UI mutation. Staleness is reported by V17, not enforced at merge. | 2026-09-08 |
 | D9 | **A8 / §6.3** | **A subchart is a view over the master node set**, not an independent graph: it references master nodes by ID and may add finer nodes via `expands`, but cannot contradict the master. *Default retained — flagged for ratification (see note below).* | 2026-09-08 |
+| D10 | **§9.3b** | **Completion may never rest on an agent's self-report, from any adapter.** The map must be resumable by any agent, of any vendor, with any context window, without trusting a predecessor. Enforced by a tool-written `HANDOFF.md`, `vulcan status`, and a mandatory `vulcan check --strict --proof` block in every completion report. | 2026-09-09 |
 
 These are settled inputs to the build order in §13, not recommendations. Each is carried
 into the section named in its `Ref` column; that section is authoritative for detail.
