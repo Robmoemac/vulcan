@@ -485,6 +485,36 @@ def _v13_coverage(ws: Workspace, nodes: list[Node], report: Report) -> None:
                     )
                 )
 
+    # V13d — depth, not just accounting.
+    #
+    # V13 alone is satisfiable by a `covers` glob, and V13b by a single token node
+    # per module. Dogfooding on a 205-file repo produced a map where 186 files had
+    # no representation at all and both rules still passed — exactly the premature
+    # "done" this design exists to prevent. Coverage means every in-scope file is
+    # actually described by something, not merely claimed by a glob.
+    if cfg.require_function_node_per_file:
+        described = {
+            n.source.file for n in nodes if n.source.file and not n.is_covering
+        }
+        undescribed = [rel for rel in in_scope if rel not in described]
+        if undescribed:
+            shown = "\n        ".join(undescribed[:20])
+            more = (
+                f"\n        ... and {len(undescribed) - 20} more"
+                if len(undescribed) > 20
+                else ""
+            )
+            report.add(
+                Finding(
+                    "V13d", ERROR,
+                    f"{len(undescribed)} in-scope file(s) are claimed by a module `covers` "
+                    f"glob but have no function-level node describing them:"
+                    f"\n        {shown}{more}",
+                    hint="A `covers` glob accounts for a file; it does not describe it. "
+                         "Add function/struct nodes in the module's subchart.",
+                )
+            )
+
 
 def _covers_base(node: Node) -> str | None:
     """Longest common directory prefix of a node's `covers` globs.

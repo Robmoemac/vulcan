@@ -82,6 +82,7 @@ class Config:
     min_doc_words: int = 120
     require_every_in_scope_file_mapped: bool = True
     require_subchart_per_module: bool = True
+    require_function_node_per_file: bool = True
     path: Path | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -149,6 +150,9 @@ def load_config(path: Path) -> Config:
             "require_every_in_scope_file_mapped", True
         ),
         require_subchart_per_module=coverage.get("require_subchart_per_module", True),
+        require_function_node_per_file=coverage.get(
+            "require_function_node_per_file", True
+        ),
         path=path,
         raw=raw,
     )

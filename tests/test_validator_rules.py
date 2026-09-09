@@ -194,6 +194,37 @@ def test_v13a_covers_may_not_escape_module_root(repo: Path, mind: Mind) -> None:
     assert "V13a" in rules(check(repo))
 
 
+def test_v13d_covers_glob_does_not_substitute_for_description(repo: Path, mind: Mind) -> None:
+    """A `covers` glob accounts for a file; it does not describe it.
+
+    Dogfooding on a 205-file repo produced a map where a module node's glob
+    satisfied V13 and one token node satisfied V13b, while 186 files had no
+    representation at all — and the gate passed. V13d closes that.
+    """
+    (repo / "src" / "extra.py").write_text("def extra():\n    return 0\n", encoding="utf-8")
+
+    def mutate(d):
+        d["nodes"][0]["kind"] = "module"
+        d["nodes"][0]["covers"] = ["src/**"]
+    write_master(mind, mutate)
+    doc = mind.nodes_dir / "propagator" / "propagate_orbit.md"
+    doc.write_text(
+        doc.read_text(encoding="utf-8").replace("kind: function", "kind: module"),
+        encoding="utf-8",
+    )
+
+    found = rules(check(repo))
+    assert "V13" not in found          # accounting is satisfied by the glob
+    assert "V13d" in found             # but description is not
+
+    findings = [f for f in check(repo).findings if f.rule == "V13d"]
+    assert "src/extra.py" in findings[0].message
+
+
+def test_v13d_passes_when_every_file_has_a_function_node(repo: Path) -> None:
+    assert "V13d" not in rules(check(repo))
+
+
 def test_v13a_allows_anchor_in_a_subdirectory(repo: Path, mind: Mind) -> None:
     """Regression: real modules often have no top-level file.
 
