@@ -407,19 +407,46 @@ def _v13_coverage(ws: Workspace, nodes: list[Node], report: Report) -> None:
     direct = {n.source.file for n in nodes if n.source.file}
     covering = [n for n in nodes if n.is_covering and n.covers]
 
-    # V13a — a covering node may not claim files outside its own module root.
+    # V13a — a covering node must claim a bounded subtree that contains its anchor.
     for node in covering:
-        root = _module_root(node)
-        for pattern in node.covers:
-            base = _glob_base(pattern)
-            if root and not (base == root or base.startswith(root + "/")):
+        base = _covers_base(node)
+        if base is None or base in ("", ".", "/"):
+            report.add(
+                Finding(
+                    "V13a", ERROR,
+                    f"node {node.id!r} covers the entire tree ({', '.join(node.covers)})",
+                    hint="A node may not claim everything; coverage is earned module by module.",
+                )
+            )
+            continue
+        src = node.source.file
+        if src and not (src == base or src.startswith(base + "/")):
+            report.add(
+                Finding(
+                    "V13a", ERROR,
+                    f"node {node.id!r} covers {base!r} but its source file {src!r} "
+                    "lies outside it",
+                    hint="A covering node must be anchored inside the subtree it claims.",
+                )
+            )
+
+    # V13c — two covering nodes claiming the same file leaves ownership ambiguous.
+    claimed: dict[str, str] = {}
+    for node in sorted(covering, key=lambda n: n.id):
+        for rel in ws.in_scope_files():
+            if not _covers(node, rel):
+                continue
+            prior = claimed.get(rel)
+            if prior is not None:
                 report.add(
                     Finding(
-                        "V13a", ERROR,
-                        f"node {node.id!r} covers {pattern!r}, which escapes its module root {root!r}",
-                        hint="A node may not claim the whole tree; coverage must be earned module by module.",
+                        "V13c", ERROR,
+                        f"{rel} is covered by both {prior!r} and {node.id!r}",
+                        hint="Each file must have exactly one owning module node.",
                     )
                 )
+            else:
+                claimed[rel] = node.id
 
     in_scope = ws.in_scope_files()
     unaccounted: list[str] = []
@@ -459,11 +486,28 @@ def _v13_coverage(ws: Workspace, nodes: list[Node], report: Report) -> None:
                 )
 
 
-def _module_root(node: Node) -> str | None:
-    if node.source.file:
-        return str(Path(node.source.file).parent.as_posix())
-    bases = [_glob_base(p) for p in node.covers]
-    return min(bases, key=len) if bases else None
+def _covers_base(node: Node) -> str | None:
+    """Longest common directory prefix of a node's `covers` globs.
+
+    Derived from the globs rather than from the anchor file's parent directory:
+    a module's principal file often sits in a subdirectory (src/dynamics has no
+    top-level .jl at all), so inferring the root from the anchor would reject
+    perfectly ordinary layouts.
+    """
+    bases = [_glob_base(p).split("/") for p in node.covers if _glob_base(p)]
+    if not bases:
+        return None
+    common = bases[0]
+    for parts in bases[1:]:
+        keep = 0
+        for a, b in zip(common, parts):
+            if a != b:
+                break
+            keep += 1
+        common = common[:keep]
+        if not common:
+            return None
+    return "/".join(common) or None
 
 
 def _covers(node: Node, rel: str) -> bool:

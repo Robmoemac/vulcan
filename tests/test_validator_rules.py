@@ -194,6 +194,63 @@ def test_v13a_covers_may_not_escape_module_root(repo: Path, mind: Mind) -> None:
     assert "V13a" in rules(check(repo))
 
 
+def test_v13a_allows_anchor_in_a_subdirectory(repo: Path, mind: Mind) -> None:
+    """Regression: real modules often have no top-level file.
+
+    src/dynamics/ in SpaceAGORA.jl contains only subdirectories, so its anchor
+    necessarily sits deeper than the subtree it covers. Deriving the module root
+    from the anchor's parent rejected that; it is derived from `covers` instead.
+    """
+    (repo / "src" / "sub").mkdir()
+    (repo / "src" / "sub" / "deep.py").write_text("def deep():\n    return 1\n", encoding="utf-8")
+
+    def mutate(d):
+        d["nodes"][0]["kind"] = "module"
+        d["nodes"][0]["covers"] = ["src/**"]
+        d["nodes"][0]["source"] = {"file": "src/sub/deep.py", "symbol": "deep"}
+    write_master(mind, mutate)
+    doc = mind.nodes_dir / "propagator" / "propagate_orbit.md"
+    text = doc.read_text(encoding="utf-8").replace("kind: function", "kind: module")
+    text = text.replace("file: src/propagator.py", "file: src/sub/deep.py")
+    text = text.replace("symbol: propagate_orbit", "symbol: deep")
+    doc.write_text(text, encoding="utf-8")
+
+    assert "V13a" not in rules(check(repo))
+
+
+def test_v13a_rejects_anchor_outside_what_it_covers(repo: Path, mind: Mind) -> None:
+    (repo / "other").mkdir()
+    (repo / "other" / "stray.py").write_text("def stray():\n    return 1\n", encoding="utf-8")
+
+    def mutate(d):
+        d["nodes"][0]["kind"] = "module"
+        d["nodes"][0]["covers"] = ["src/**"]
+        d["nodes"][0]["source"] = {"file": "other/stray.py", "symbol": "stray"}
+    write_master(mind, mutate)
+    doc = mind.nodes_dir / "propagator" / "propagate_orbit.md"
+    text = doc.read_text(encoding="utf-8").replace("kind: function", "kind: module")
+    text = text.replace("file: src/propagator.py", "file: other/stray.py")
+    text = text.replace("symbol: propagate_orbit", "symbol: stray")
+    doc.write_text(text, encoding="utf-8")
+
+    assert "V13a" in rules(check(repo))
+
+
+def test_v13c_two_modules_may_not_claim_the_same_file(repo: Path, mind: Mind) -> None:
+    def mutate(d):
+        for node in d["nodes"][:2]:
+            node["kind"] = "module"
+            node["covers"] = ["src/**"]
+    write_master(mind, mutate)
+    for rel in ("propagator/propagate_orbit.md", "telemetry/write_telemetry.md"):
+        doc = mind.nodes_dir / rel
+        doc.write_text(
+            doc.read_text(encoding="utf-8").replace("kind: function", "kind: module"),
+            encoding="utf-8",
+        )
+    assert "V13c" in rules(check(repo))
+
+
 def test_v13b_module_needs_expanding_subchart(repo: Path, mind: Mind) -> None:
     def mutate(d):
         d["nodes"][0]["kind"] = "module"
