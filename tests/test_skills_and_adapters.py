@@ -89,3 +89,42 @@ def test_codex_and_agents_md_share_one_file(tmp_path: Path) -> None:
     adapters_mod.ADAPTERS["agents-md"].install(tmp_path, skills)
     text = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     assert text.count("vulcan-map:begin") == 1
+
+
+# --- handoff / anti-self-report hardening -------------------------------------
+
+@pytest.mark.parametrize("key", sorted(SKILLS))
+def test_every_skill_forbids_unproven_completion_claims(key: str) -> None:
+    """The contract must reach every adapter, not just Claude's."""
+    body = load_skill(key).body
+    assert "vulcan check --strict --proof" in body
+    assert "is void" in body
+    assert "vulcan status" in body
+
+
+@pytest.mark.parametrize("key", sorted(SKILLS))
+def test_every_skill_tells_the_agent_not_to_trust_predecessors(key: str) -> None:
+    body = load_skill(key).body
+    assert "no agent's account of progress is evidence" in body.lower()
+    assert "HANDOFF.md" in body
+
+
+def test_agents_md_header_carries_the_proof_requirement(tmp_path: Path) -> None:
+    """Codex/Devin/generic all read AGENTS.md — the rule must be near the top."""
+    adapters_mod.ADAPTERS["agents-md"].install(tmp_path, list(all_skills()))
+    text = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    head = text[: text.find("## Skill:")]
+    assert "vulcan status" in head
+    assert "vulcan check --strict --proof" in head
+    assert "void" in head
+
+
+def test_claude_and_devin_targets_carry_it_too(tmp_path: Path) -> None:
+    skills = list(all_skills())
+    for adapter in adapters_mod.get():
+        adapter.install(tmp_path, skills)
+    claude = (tmp_path / ".claude" / "skills" / "vulcan-map" / "SKILL.md").read_text(encoding="utf-8")
+    devin = (tmp_path / ".devin" / "vulcan-map.md").read_text(encoding="utf-8")
+    for text in (claude, devin):
+        assert "vulcan check --strict --proof" in text
+        assert "HANDOFF.md" in text

@@ -90,5 +90,14 @@ Common failures and what they mean:
 
 ### Step 5 — Report
 
-Report only after `--strict` passes. State: files mapped, nodes, edges, subchart
-candidates outstanding, and anything you deliberately excluded and why.
+Report only after `--strict` passes, and **paste the literal output of
+`vulcan check --strict --proof`** as the first thing in your report. Without that
+block your claim is void; with a block reading `verdict : FAIL` it is also void.
+
+Then state: files mapped, nodes, edges, subchart candidates outstanding, and
+anything you deliberately excluded and why.
+
+If you are handing over unfinished — because you ran out of context, hit a limit,
+or were interrupted — say so plainly, paste the FAIL proof block, and note that
+`vulcan_mind/HANDOFF.md` holds the resumable state. That is a good outcome. A
+false "done" is not.

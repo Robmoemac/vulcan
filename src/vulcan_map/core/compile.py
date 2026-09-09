@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import SCHEMA_VERSION, __version__
+from . import handoff as handoff_mod
 from . import pending as pending_mod
 from .frontmatter import CONNECTIONS_BLOCK, ICD_BLOCK, NodeDoc, render
 from .layout import assign_positions
@@ -308,3 +309,8 @@ def _write_all(
     gitignore = mind.build_dir / ".gitignore"
     if not gitignore.exists():
         _atomic_write(gitignore, "*\n")
+
+    # Written last, from the state that actually reached disk. This is what an
+    # incoming agent reads instead of trusting a predecessor's completion claim.
+    status = handoff_mod.collect(ws, report, commit)
+    result.written.extend(handoff_mod.write(mind, status))

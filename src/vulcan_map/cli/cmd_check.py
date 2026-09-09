@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 
+from .. import __version__
 from ..core import compile as compile_mod
 from ._common import colour, resolve_repo, GREEN, RED, YELLOW, DIM
 
@@ -21,10 +22,45 @@ def report_lines(result: compile_mod.CompileResult, strict: bool) -> list[str]:
     return out
 
 
+def proof_block(result: compile_mod.CompileResult, repo_root, strict: bool) -> str:
+    """A quotable attestation of the gate result.
+
+    Completion claims travel between agents as prose, which is exactly what makes
+    them untrustworthy. This block is generated from the run that just happened,
+    names the commit it was taken against, and states the verdict either way —
+    so a FAIL cannot be hidden by simply not pasting it.
+    """
+    from ..core import handoff as handoff_mod
+    from ..core.repo import git_commit
+
+    status = handoff_mod.collect(result.workspace, result.report, git_commit(repo_root))
+    verdict = "PASS" if status.strict_ok else "FAIL"
+    lines = [
+        "----- VULCAN PROOF OF COMPLETION -----",
+        f"tool            : vulcan-map/{__version__}",
+        f"repo commit     : {status.repo_commit or 'unknown'}",
+        f"region          : {status.region}",
+        "gate            : vulcan check --strict",
+        f"verdict         : {verdict}",
+        f"exit code       : {0 if status.strict_ok else 1}",
+        f"errors/warnings : {status.errors}/{status.warnings}",
+        f"nodes/edges     : {status.nodes}/{status.edges}",
+        f"in-scope files  : {status.in_scope}",
+        f"described files : {status.described}",
+        f"outstanding     : {len(status.outstanding)}",
+        "----- END PROOF -----",
+    ]
+    return "\n".join(lines)
+
+
 def run(args: argparse.Namespace) -> int:
     repo_root = resolve_repo(args)
     result = compile_mod.run(repo_root, region=args.region, check_only=True, strict=args.strict)
     report = result.report
+
+    if getattr(args, "proof", False):
+        print(proof_block(result, repo_root, args.strict))
+        return 0 if report.ok(args.strict) else 1
 
     if getattr(args, "json", False):
         print(json.dumps(report.to_dict(args.strict), indent=2))

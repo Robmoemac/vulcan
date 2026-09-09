@@ -46,6 +46,16 @@ def build_parser() -> argparse.ArgumentParser:
     _add_repo_args(p_check)
     p_check.add_argument("--strict", action="store_true", help="Treat warnings as errors")
     p_check.add_argument("--json", action="store_true", help="Emit the report as JSON")
+    p_check.add_argument(
+        "--proof", action="store_true",
+        help="Print a quotable attestation of the gate result (required when reporting done)",
+    )
+
+    p_status = sub.add_parser(
+        "status", help="Authoritative progress state — run this first when picking up a map"
+    )
+    _add_repo_args(p_status)
+    p_status.add_argument("--json", action="store_true", help="Machine-readable output")
 
     p_wl = sub.add_parser("worklist", help="Durable progress ledger")
     _add_repo_args(p_wl)
@@ -95,13 +105,14 @@ def main(argv: list[str] | None = None) -> int:
 
     from . import (
         cmd_check, cmd_compile, cmd_doctor, cmd_init, cmd_install_shim,
-        cmd_region, cmd_ui, cmd_worklist,
+        cmd_region, cmd_status, cmd_ui, cmd_worklist,
     )
 
     handlers = {
         "init": cmd_init.run,
         "compile": cmd_compile.run,
         "check": cmd_check.run,
+        "status": cmd_status.run,
         "worklist": cmd_worklist.run,
         "region": cmd_region.run,
         "ui": cmd_ui.run,

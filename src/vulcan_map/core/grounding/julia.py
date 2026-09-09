@@ -13,17 +13,24 @@ from .regex import RegexGrounder
 
 
 def _decl_patterns(symbol: str) -> list[re.Pattern[str]]:
+    """Declaration forms for `symbol`, anchored to the start of a line.
+
+    Indentation is matched with `[ \\t]*`, never `\\s*`: `\\s` includes newlines,
+    so `^\\s*function` could begin matching on an earlier blank line and report a
+    definition one or more lines above its true position.
+    """
     s = re.escape(symbol)
+    ws = r"[ \t]*"
     return [
-        re.compile(rf"^\s*function\s+{s}\s*[({{]", re.MULTILINE),      # function f(...)
-        re.compile(rf"^\s*function\s+\w+\.{s}\s*[({{]", re.MULTILINE),  # function Mod.f(...)
-        re.compile(rf"^\s*{s}\s*\(.*?\)\s*=", re.MULTILINE),            # f(x) = ...
-        re.compile(rf"^\s*(?:mutable\s+)?struct\s+{s}\b", re.MULTILINE),
-        re.compile(rf"^\s*abstract\s+type\s+{s}\b", re.MULTILINE),
-        re.compile(rf"^\s*primitive\s+type\s+{s}\b", re.MULTILINE),
-        re.compile(rf"^\s*macro\s+{s}\b", re.MULTILINE),
-        re.compile(rf"^\s*const\s+{s}\b", re.MULTILINE),
-        re.compile(rf"^\s*module\s+{s}\b", re.MULTILINE),
+        re.compile(rf"^{ws}function\s+{s}\s*[({{]", re.MULTILINE),      # function f(...)
+        re.compile(rf"^{ws}function\s+\w+\.{s}\s*[({{]", re.MULTILINE),  # function Mod.f(...)
+        re.compile(rf"^{ws}{s}\s*\(.*?\)\s*=", re.MULTILINE),            # f(x) = ...
+        re.compile(rf"^{ws}(?:mutable\s+)?struct\s+{s}\b", re.MULTILINE),
+        re.compile(rf"^{ws}abstract\s+type\s+{s}\b", re.MULTILINE),
+        re.compile(rf"^{ws}primitive\s+type\s+{s}\b", re.MULTILINE),
+        re.compile(rf"^{ws}macro\s+{s}\b", re.MULTILINE),
+        re.compile(rf"^{ws}const\s+{s}\b", re.MULTILINE),
+        re.compile(rf"^{ws}module\s+{s}\b", re.MULTILINE),
     ]
 
 
@@ -43,8 +50,17 @@ class JuliaGrounder(Grounder):
         return self._fallback.contains_symbol(text, symbol)
 
     def symbol_line(self, text: str, symbol: str) -> int | None:
-        for pattern in _decl_patterns(symbol):
-            m = pattern.search(text)
-            if m:
-                return text.count("\n", 0, m.start()) + 1
+        """Line of the earliest declaration of `symbol`, across all forms.
+
+        Takes the earliest match rather than the first *pattern* that matches:
+        a type declared at line 19 with a short-form constructor at line 24 must
+        report 19, and pattern order alone would report 24.
+        """
+        starts = [
+            m.start()
+            for m in (p.search(text) for p in _decl_patterns(symbol))
+            if m is not None
+        ]
+        if starts:
+            return text.count("\n", 0, min(starts)) + 1
         return super().symbol_line(text, symbol)
