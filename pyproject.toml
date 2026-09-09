@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vulcan-map"
+version = "0.1.0"
+description = "Agent-driven codebase mapping: skills, a node-graph UI, and a linked-markdown knowledge base."
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml",
+    "jsonschema",
+    "networkx",
+]
+
+[project.optional-dependencies]
+ui = ["pyside6", "matplotlib", "markdown-it-py"]
+
+[project.scripts]
+vulcan = "vulcan_map.cli.__main__:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+vulcan_map = [
+    "templates/*",
+    "skills/*.md",
+    "skills/**/*.md",
+    "schemas/*.json",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

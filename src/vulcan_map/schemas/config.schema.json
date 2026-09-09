@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vulcan-map/schemas/config.schema.json",
+  "title": "vulcan.config.yaml",
+  "type": "object",
+  "required": ["version", "project", "regions"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "const": 1 },
+    "project": { "type": "string", "minLength": 1 },
+    "languages": { "type": "array", "items": { "type": "string" } },
+    "default_region": { "type": "string" },
+    "regions": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "object",
+        "required": ["include"],
+        "additionalProperties": false,
+        "properties": {
+          "description": { "type": "string" },
+          "include": { "type": "array", "items": { "type": "string" }, "minItems": 1 },
+          "exclude": { "type": "array", "items": { "type": "string" } },
+          "granularity": { "enum": ["module", "file", "function"] }
+        }
+      }
+    },
+    "grounding": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "require_symbol_match": { "type": "boolean" },
+        "symbol_search": { "enum": ["regex", "julia", "python", "auto"] }
+      }
+    },
+    "lint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "banned_phrases": { "type": "array", "items": { "type": "string" } },
+        "min_doc_words": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "require_every_in_scope_file_mapped": { "type": "boolean" },
+        "require_subchart_per_module": { "type": "boolean" }
+      }
+    }
+  }
+}

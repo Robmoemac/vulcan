@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vulcan-map/schemas/graph.schema.json",
+  "title": "Vulcan chart file",
+  "type": "object",
+  "required": ["schema_version", "chart_id", "chart_kind", "title"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": { "type": "string" },
+    "chart_id": { "$ref": "#/$defs/chartId" },
+    "chart_kind": { "enum": ["master", "sub"] },
+    "title": { "type": "string", "minLength": 1 },
+    "region": { "type": "string" },
+    "derives_from": { "$ref": "#/$defs/chartId" },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "repo_commit": { "type": "string" },
+        "generated_at": { "type": "string" },
+        "generator": { "type": "string" },
+        "agent": { "type": "string" }
+      }
+    },
+    "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+    "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } },
+    "member_nodes": { "type": "array", "items": { "$ref": "#/$defs/nodeId" } },
+    "local_nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
+    "local_edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } },
+    "ui": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pos_overrides": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/pos" }
+        }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "chart_kind": { "const": "master" } }, "required": ["chart_kind"] },
+      "then": { "required": ["nodes", "edges"] }
+    },
+    {
+      "if": { "properties": { "chart_kind": { "const": "sub" } }, "required": ["chart_kind"] },
+      "then": { "required": ["derives_from", "member_nodes"] }
+    }
+  ],
+  "$defs": {
+    "chartId": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "nodeId": { "type": "string", "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)*$" },
+    "socketId": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+    "pos": {
+      "type": "array",
+      "items": { "type": "number" },
+      "minItems": 2,
+      "maxItems": 2
+    },
+    "socket": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/socketId" },
+        "type": { "type": "string" },
+        "units": { "type": "string" },
+        "required": { "type": "boolean" },
+        "description": { "type": "string" }
+      }
+    },
+    "node": {
+      "type": "object",
+      "required": ["id", "label", "kind", "doc", "origin"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/nodeId" },
+        "label": { "type": "string", "minLength": 1 },
+        "kind": { "enum": ["function", "file", "module", "struct", "external", "group"] },
+        "doc": { "type": "string", "minLength": 1 },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "file": { "type": "string" },
+            "symbol": { "type": "string" },
+            "lines": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 1 },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
+        "sockets": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "inputs": { "type": "array", "items": { "$ref": "#/$defs/socket" } },
+            "outputs": { "type": "array", "items": { "$ref": "#/$defs/socket" } }
+          }
+        },
+        "covers": { "type": "array", "items": { "type": "string" } },
+        "expands": { "oneOf": [{ "$ref": "#/$defs/nodeId" }, { "type": "null" }] },
+        "ui": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "pos": { "$ref": "#/$defs/pos" },
+            "color": { "type": "string" },
+            "collapsed": { "type": "boolean" }
+          }
+        },
+        "tags": { "type": "array", "items": { "type": "string" } },
+        "origin": { "enum": ["agent", "human"] }
+      }
+    },
+    "endpoint": {
+      "type": "object",
+      "required": ["node", "socket"],
+      "additionalProperties": false,
+      "properties": {
+        "node": { "$ref": "#/$defs/nodeId" },
+        "socket": { "$ref": "#/$defs/socketId" }
+      }
+    },
+    "edge": {
+      "type": "object",
+      "required": ["id", "from", "to", "kind", "evidence", "origin"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "minLength": 1 },
+        "from": { "$ref": "#/$defs/endpoint" },
+        "to": { "$ref": "#/$defs/endpoint" },
+        "kind": { "enum": ["dataflow", "call", "mutates", "reads", "feedback"] },
+        "label": { "type": "string" },
+        "evidence": {
+          "type": "object",
+          "required": ["file"],
+          "additionalProperties": false,
+          "properties": {
+            "file": { "type": "string", "minLength": 1 },
+            "lines": {
+              "type": "array",
+              "items": { "type": "integer", "minimum": 1 },
+              "minItems": 2,
+              "maxItems": 2
+            }
+          }
+        },
+        "origin": { "enum": ["agent", "human"] }
+      }
+    }
+  }
+}

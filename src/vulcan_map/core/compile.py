@@ -1,0 +1,293 @@
+"""The compile pipeline (PLAN.md §7.2).
+
+Deterministic, idempotent, offline. `compile` writes; `check` runs the identical
+pipeline with every write suppressed, plus drift detection (V15).
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import tempfile
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any
+
+from .. import SCHEMA_VERSION, __version__
+from .frontmatter import CONNECTIONS_BLOCK, ICD_BLOCK, NodeDoc, render
+from .layout import assign_positions
+from .model import Chart, Edge, Node, ResolvedGraph, Socket
+from .repo import Mind, git_commit
+from .resolve import resolve
+from .validate import Report, validate
+from .workspace import Workspace, load_workspace
+from .worklist import build_worklist
+
+
+@dataclass(slots=True)
+class CompileResult:
+    workspace: Workspace
+    report: Report
+    resolved: dict[str, ResolvedGraph] = field(default_factory=dict)
+    written: list[Path] = field(default_factory=list)
+    sockets_lifted: int = 0
+    positions_assigned: int = 0
+    check_only: bool = False
+
+    @property
+    def ok(self) -> bool:
+        return self.report.ok()
+
+
+def _atomic_write(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=str(path.parent), suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8", newline="\n") as fh:
+            fh.write(text)
+        os.replace(tmp, path)
+    except BaseException:
+        Path(tmp).unlink(missing_ok=True)
+        raise
+
+
+def _dump_json(payload: Any) -> str:
+    return json.dumps(payload, indent=2, ensure_ascii=False, sort_keys=False) + "\n"
+
+
+# ---------------------------------------------------------------- step 4: lift sockets
+
+def lift_sockets(ws: Workspace) -> int:
+    """Project frontmatter-declared sockets into chart JSON (md -> json).
+
+    Never deletes a socket present only in JSON: an edge may reference it, and
+    silently removing it would turn a reportable V10 into a confusing V4.
+    """
+    lifted = 0
+    for chart in ws.charts:
+        for node in chart.all_nodes():
+            doc = ws.doc_by_id(node.id)
+            if doc is None:
+                continue
+            for key, attr in (("inputs", "inputs"), ("outputs", "outputs")):
+                declared = [Socket.from_dict(s) for s in doc.meta.get(key, [])]
+                current = list(getattr(node, attr))
+                merged = _merge_sockets(current, declared)
+                if [s.to_dict() for s in merged] != [s.to_dict() for s in current]:
+                    setattr(node, attr, tuple(merged))
+                    lifted += 1
+    return lifted
+
+
+def _merge_sockets(current: list[Socket], declared: list[Socket]) -> list[Socket]:
+    """Frontmatter wins on content and ordering; JSON-only sockets are retained."""
+    declared_ids = {s.id for s in declared}
+    retained = [s for s in current if s.id not in declared_ids]
+    return declared + retained
+
+
+# ---------------------------------------------------------------- step 9: generated blocks
+
+def generate_icd_block(node: Node) -> str:
+    lines = ["| Direction | Socket | Type | Units | Required | Description |",
+             "|---|---|---|---|---|---|"]
+    rows = [("in", s) for s in node.inputs] + [("out", s) for s in node.outputs]
+    if not rows:
+        lines.append("| — | — | — | — | — | *No sockets declared.* |")
+    for direction, s in rows:
+        req = "yes" if s.required else ("no" if s.required is not None else "—")
+        lines.append(
+            f"| {direction} | `{s.id}` | {_cell(s.type)} | {_cell(s.units)} | {req} | {_cell(s.description)} |"
+        )
+    return "\n".join(lines)
+
+
+def _cell(value: str | None) -> str:
+    return value.replace("|", r"\|") if value else "—"
+
+
+def generate_connections_block(
+    node: Node, edges: list[Edge], by_id: dict[str, Node]
+) -> str:
+    upstream: list[str] = []
+    downstream: list[str] = []
+    for e in sorted(edges, key=lambda e: e.id):
+        if e.to.node == node.id and e.from_.node in by_id:
+            other = by_id[e.from_.node]
+            upstream.append(
+                f"- [[{other.id}|{other.label}]] · `{e.from_.socket}` → `{e.to.socket}`"
+                f" · {e.kind}{_evidence_suffix(e)}"
+            )
+        elif e.from_.node == node.id and e.to.node in by_id:
+            other = by_id[e.to.node]
+            downstream.append(
+                f"- `{e.from_.socket}` → [[{other.id}|{other.label}]] · `{e.to.socket}`"
+                f" · {e.kind}{_evidence_suffix(e)}"
+            )
+
+    out = ["**Upstream**", ""]
+    out += upstream or ["- *none*"]
+    out += ["", "**Downstream**", ""]
+    out += downstream or ["- *none*"]
+    return "\n".join(out)
+
+
+def _evidence_suffix(edge: Edge) -> str:
+    ev = edge.evidence
+    if ev.lines:
+        return f" · `{ev.file}:{ev.lines[0]}-{ev.lines[1]}`"
+    return f" · `{ev.file}`"
+
+
+def expected_blocks(ws: Workspace, all_edges: list[Edge]) -> dict[Path, dict[str, str]]:
+    by_id = {n.id: n for n in ws.all_nodes()}
+    out: dict[Path, dict[str, str]] = {}
+    for doc in ws.docs:
+        node = by_id.get(doc.id or "")
+        if node is None:
+            continue
+        out[doc.path] = {
+            ICD_BLOCK: generate_icd_block(node),
+            CONNECTIONS_BLOCK: generate_connections_block(node, all_edges, by_id),
+        }
+    return out
+
+
+def _apply_blocks(doc: NodeDoc, blocks: dict[str, str]) -> str:
+    body = doc.body
+    tmp = NodeDoc(path=doc.path, meta=doc.meta, body=body, raw=doc.raw)
+    for name, content in blocks.items():
+        tmp.body = tmp.with_block(name, content)
+    return render(doc.meta, tmp.body)
+
+
+# ---------------------------------------------------------------- driver
+
+def run(
+    repo_root: Path,
+    *,
+    region: str | None = None,
+    check_only: bool = False,
+    strict: bool = False,
+) -> CompileResult:
+    ws = load_workspace(repo_root, region)
+    mind = ws.mind
+
+    lifted = lift_sockets(ws)
+
+    master = ws.master
+    resolved: dict[str, ResolvedGraph] = {}
+    for chart in ws.charts:
+        try:
+            resolved[chart.chart_id] = resolve(chart, master, ws.region)
+        except Exception as exc:
+            from .workspace import LoadIssue
+
+            ws.issues.append(LoadIssue(path=chart.path or mind.root, message=str(exc), rule="V3"))
+
+    assigned = 0
+    for chart in ws.charts:
+        graph = resolved.get(chart.chart_id)
+        if graph is None:
+            continue
+        owned = list(chart.nodes) if chart.is_master else list(chart.local_nodes)
+        if owned:
+            assigned += assign_positions(owned, graph.edges)
+
+    all_edges = [e for c in ws.charts for e in c.all_edges()]
+    blocks = expected_blocks(ws, all_edges)
+
+    report = validate(ws, expected_blocks=blocks if check_only else None)
+
+    result = CompileResult(
+        workspace=ws,
+        report=report,
+        resolved=resolved,
+        sockets_lifted=lifted,
+        positions_assigned=assigned,
+        check_only=check_only,
+    )
+    if check_only:
+        return result
+
+    _write_all(ws, mind, resolved, blocks, report, strict, result)
+    return result
+
+
+def _write_all(
+    ws: Workspace,
+    mind: Mind,
+    resolved: dict[str, ResolvedGraph],
+    blocks: dict[Path, dict[str, str]],
+    report: Report,
+    strict: bool,
+    result: CompileResult,
+) -> None:
+    commit = git_commit(ws.repo_root)
+    stamp = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+    for chart in ws.charts:
+        if chart.path is None:
+            continue
+        if chart.is_master:
+            # Only values that are stable for a given (repo state, tool version)
+            # go in the committed file. A wall-clock stamp here would make every
+            # compile a diff, defeating idempotence; it lives in _build/index.json
+            # instead. None must never reach the file either — the schema types
+            # these as strings, so a null would fail V1 on our own output.
+            updated = {
+                **{k: v for k, v in chart.provenance.items() if k != "generated_at"},
+                "repo_commit": commit,
+                "generator": f"vulcan-map/{__version__}",
+            }
+            chart.provenance = {k: v for k, v in updated.items() if v is not None}
+        chart.schema_version = SCHEMA_VERSION
+        _atomic_write(chart.path, _dump_json(chart.to_dict()))
+        result.written.append(chart.path)
+
+    for doc in ws.docs:
+        want = blocks.get(doc.path)
+        if not want:
+            continue
+        new_text = _apply_blocks(doc, want)
+        if new_text != doc.raw:
+            _atomic_write(doc.path, new_text)
+            result.written.append(doc.path)
+
+    mind.build_dir.mkdir(parents=True, exist_ok=True)
+    for chart_id, graph in resolved.items():
+        path = mind.resolved_path(chart_id)
+        _atomic_write(path, _dump_json(graph.to_dict()))
+        result.written.append(path)
+
+    index = {
+        "generated_at": stamp,
+        "project": ws.config.project,
+        "region": ws.region.name,
+        "repo_commit": commit,
+        "charts": [
+            {
+                "chart_id": g.chart_id,
+                "chart_kind": g.chart_kind,
+                "title": g.title,
+                "nodes": len(g.nodes),
+                "edges": len(g.edges),
+                "resolved": mind.rel(mind.resolved_path(g.chart_id)),
+            }
+            for g in sorted(resolved.values(), key=lambda g: (g.chart_kind != "master", g.chart_id))
+        ],
+    }
+    _atomic_write(mind.index_path, _dump_json(index))
+    result.written.append(mind.index_path)
+
+    worklist = build_worklist(ws)
+    _atomic_write(mind.worklist_path, _dump_json(worklist))
+    result.written.append(mind.worklist_path)
+
+    _atomic_write(mind.report_path, _dump_json(report.to_dict(strict)))
+    result.written.append(mind.report_path)
+
+    gitignore = mind.build_dir / ".gitignore"
+    if not gitignore.exists():
+        _atomic_write(gitignore, "*\n")

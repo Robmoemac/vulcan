@@ -1,0 +1,13 @@
+name: vulcan
+channels:
+  - conda-forge
+  - nodefaults
+dependencies:
+  - python=3.12
+  - pyyaml
+  - jsonschema
+  - networkx
+  - pyside6
+  - matplotlib-base
+  - markdown-it-py
+  - pytest

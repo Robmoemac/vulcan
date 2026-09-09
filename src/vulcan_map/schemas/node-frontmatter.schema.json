@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://vulcan-map/schemas/node-frontmatter.schema.json",
+  "title": "Vulcan node document frontmatter",
+  "type": "object",
+  "required": ["id", "label", "kind", "origin"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9_]+(\\.[a-z0-9_]+)*$" },
+    "label": { "type": "string", "minLength": 1 },
+    "kind": { "enum": ["function", "file", "module", "struct", "external", "group"] },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "file": { "type": "string" },
+        "symbol": { "type": "string" },
+        "lines": {
+          "type": "array",
+          "items": { "type": "integer", "minimum": 1 },
+          "minItems": 2,
+          "maxItems": 2
+        }
+      }
+    },
+    "inputs": { "type": "array", "items": { "$ref": "#/$defs/socket" } },
+    "outputs": { "type": "array", "items": { "$ref": "#/$defs/socket" } },
+    "covers": { "type": "array", "items": { "type": "string" } },
+    "expands": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+    "tags": { "type": "array", "items": { "type": "string" } },
+    "charts": { "type": "array", "items": { "type": "string" } },
+    "origin": { "enum": ["agent", "human"] }
+  },
+  "$defs": {
+    "socket": {
+      "type": "object",
+      "required": ["id"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string", "pattern": "^[A-Za-z_][A-Za-z0-9_]*$" },
+        "type": { "type": "string" },
+        "units": { "type": "string" },
+        "required": { "type": "boolean" },
+        "description": { "type": "string" }
+      }
+    }
+  }
+}
