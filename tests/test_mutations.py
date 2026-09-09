@@ -1,4 +1,4 @@
-"""UI mutations write canonical JSON and are held to the same grounding bar."""
+"""UI edits are queued intents; compile is the only writer of chart files."""
 
 from __future__ import annotations
 
@@ -7,9 +7,10 @@ from pathlib import Path
 
 import pytest
 
-from vulcan_map.core import compile as compile_mod
+from vulcan_map.core import compile as compile_mod, pending
 from vulcan_map.core.mutations import (
-    MutationError, add_edge, owning_chart, remove_edge, restore_edge, set_position,
+    MutationError, enqueue_add_edge, enqueue_remove_edge, owning_chart,
+    pending_count, set_position,
 )
 from vulcan_map.core.repo import Mind
 
@@ -18,37 +19,87 @@ def master(mind: Mind) -> dict:
     return json.loads(mind.master_path.read_text(encoding="utf-8"))
 
 
+def edge_ids(mind: Mind) -> list[str]:
+    return [e["id"] for e in master(mind)["edges"]]
+
+
 def test_add_edge_requires_real_evidence(repo: Path, mind: Mind) -> None:
     """A hand-drawn edge may not fabricate its evidence."""
     with pytest.raises(MutationError, match="does not exist"):
-        add_edge(
+        enqueue_add_edge(
             mind, "master",
             from_node="telemetry.run", from_socket="result",
             to_node="telemetry.write_telemetry", to_socket="data",
             evidence_file="src/invented.py",
         )
-    assert len(master(mind)["edges"]) == 4  # unchanged
+    assert pending_count(mind) == 0
+    assert len(master(mind)["edges"]) == 4
 
 
-def test_add_edge_writes_canonical_and_survives_compile(repo: Path, mind: Mind) -> None:
-    add_edge(
+def test_blank_evidence_is_refused(repo: Path, mind: Mind) -> None:
+    with pytest.raises(MutationError, match="must cite a file"):
+        enqueue_add_edge(
+            mind, "master",
+            from_node="telemetry.run", from_socket="path_out",
+            to_node="propagator.propagate_orbit", to_socket="state0",
+            evidence_file="   ",
+        )
+
+
+def test_drawing_queues_but_does_not_write(repo: Path, mind: Mind) -> None:
+    """The core of the change: drawing must not touch a chart file."""
+    before = mind.master_path.read_text(encoding="utf-8")
+
+    enqueue_add_edge(
         mind, "master",
-        from_node="telemetry.write_telemetry", from_socket="written_path",
-        to_node="telemetry.write_telemetry", to_socket="path",
+        from_node="telemetry.run", from_socket="path_out",
+        to_node="propagator.propagate_orbit", to_socket="state0",
         evidence_file="src/telemetry.py",
     )
-    # Self-edge above is nonsense on purpose; what matters is it landed in JSON.
-    edges = master(mind)["edges"]
-    assert len(edges) == 5
-    assert edges[-1]["origin"] == "human"
 
-    result = compile_mod.run(repo, check_only=True)
-    assert any(f.rule == "V5" for f in result.report.findings)  # cycle detected
+    assert mind.master_path.read_text(encoding="utf-8") == before
+    assert mind.pending_path.exists()
+    assert pending_count(mind) == 1
 
 
-def test_add_edge_rejects_duplicate(repo: Path, mind: Mind) -> None:
+def test_compile_folds_the_queue_and_clears_it(repo: Path, mind: Mind) -> None:
+    edge_id = enqueue_add_edge(
+        mind, "master",
+        from_node="telemetry.run", from_socket="path_out",
+        to_node="propagator.propagate_orbit", to_socket="state0",
+        evidence_file="src/telemetry.py",
+    )
+    result = compile_mod.run(repo, check_only=False)
+
+    assert result.pending_applied == 1
+    assert edge_id in edge_ids(mind)
+    assert not mind.pending_path.exists()
+
+    folded = next(e for e in master(mind)["edges"] if e["id"] == edge_id)
+    assert folded["origin"] == "human"
+    assert folded["evidence"]["file"] == "src/telemetry.py"
+
+
+def test_check_sees_pending_without_consuming_it(repo: Path, mind: Mind) -> None:
+    """`check` must validate what `compile` would write, but write nothing."""
+    enqueue_add_edge(
+        mind, "master",
+        from_node="telemetry.write_telemetry", from_socket="written_path",
+        to_node="telemetry.run", to_socket="path",
+        evidence_file="src/telemetry.py",
+    )
+    before = mind.master_path.read_text(encoding="utf-8")
+
+    report = compile_mod.run(repo, check_only=True).report
+    assert any(f.rule == "V5" for f in report.findings)  # the queued edge closes a cycle
+
+    assert mind.master_path.read_text(encoding="utf-8") == before
+    assert pending_count(mind) == 1
+
+
+def test_add_edge_rejects_duplicate_of_existing(repo: Path, mind: Mind) -> None:
     with pytest.raises(MutationError, match="already exists"):
-        add_edge(
+        enqueue_add_edge(
             mind, "master",
             from_node="propagator.propagate_orbit", from_socket="traj",
             to_node="telemetry.write_telemetry", to_socket="data",
@@ -56,29 +107,62 @@ def test_add_edge_rejects_duplicate(repo: Path, mind: Mind) -> None:
         )
 
 
-def test_human_edge_is_protected_from_casual_removal(repo: Path, mind: Mind) -> None:
-    """D6: human edits are sticky."""
-    edge_id = add_edge(
-        mind, "master",
-        from_node="telemetry.run", from_socket="result",
-        to_node="telemetry.write_telemetry", to_socket="data",
+def test_add_edge_rejects_duplicate_already_queued(repo: Path, mind: Mind) -> None:
+    kw = dict(
+        from_node="telemetry.run", from_socket="path_out",
+        to_node="propagator.propagate_orbit", to_socket="state0",
         evidence_file="src/telemetry.py",
     )
+    enqueue_add_edge(mind, "master", **kw)
+    with pytest.raises(MutationError, match="already queued"):
+        enqueue_add_edge(mind, "master", **kw)
+
+
+def test_human_edge_is_protected_from_casual_removal(repo: Path, mind: Mind) -> None:
+    """D6: human edits are sticky."""
+    edge_id = enqueue_add_edge(
+        mind, "master",
+        from_node="telemetry.run", from_socket="path_out",
+        to_node="propagator.propagate_orbit", to_socket="state0",
+        evidence_file="src/telemetry.py",
+    )
+    compile_mod.run(repo, check_only=False)
+    assert edge_id in edge_ids(mind)
+
     with pytest.raises(MutationError, match="added by hand"):
-        remove_edge(mind, "master", edge_id)
+        enqueue_remove_edge(mind, "master", edge_id)
 
-    removed = remove_edge(mind, "master", edge_id, allow_removal=True)
-    assert removed["id"] == edge_id
-    assert len(master(mind)["edges"]) == 4
+    enqueue_remove_edge(mind, "master", edge_id, allow_removal=True)
+    compile_mod.run(repo, check_only=False)
+    assert edge_id not in edge_ids(mind)
 
 
-def test_remove_then_restore_round_trips(repo: Path, mind: Mind) -> None:
-    target = master(mind)["edges"][0]["id"]
-    removed = remove_edge(mind, "master", target)
-    assert all(e["id"] != target for e in master(mind)["edges"])
+def test_removal_is_also_queued_not_written(repo: Path, mind: Mind) -> None:
+    target = edge_ids(mind)[0]
+    before = mind.master_path.read_text(encoding="utf-8")
 
-    restore_edge(mind, "master", removed)
-    assert any(e["id"] == target for e in master(mind)["edges"])
+    enqueue_remove_edge(mind, "master", target)
+    assert mind.master_path.read_text(encoding="utf-8") == before
+
+    compile_mod.run(repo, check_only=False)
+    assert target not in edge_ids(mind)
+
+
+def test_folding_an_already_applied_edit_is_a_no_op(repo: Path, mind: Mind) -> None:
+    """Replaying a queue must not duplicate edges — fold is idempotent."""
+    edit = pending.Edit(
+        op="add_edge", chart_id="master",
+        from_node="telemetry.run", from_socket="path_out",
+        to_node="propagator.propagate_orbit", to_socket="state0",
+        evidence_file="src/telemetry.py",
+    )
+    pending.append(mind.pending_path, edit)
+    compile_mod.run(repo, check_only=False)
+    first = edge_ids(mind)
+
+    pending.append(mind.pending_path, edit)  # same intent again
+    compile_mod.run(repo, check_only=False)
+    assert edge_ids(mind) == first
 
 
 def test_set_position_persists(repo: Path, mind: Mind) -> None:

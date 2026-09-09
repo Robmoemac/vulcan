@@ -19,7 +19,7 @@ from PySide6.QtCore import QPointF  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from vulcan_map.core import compile as compile_mod  # noqa: E402
-from vulcan_map.core.mutations import add_edge  # noqa: E402
+from vulcan_map.core.mutations import enqueue_add_edge  # noqa: E402
 from vulcan_map.core.repo import Mind  # noqa: E402
 from vulcan_map.ui.graph_scene import GraphScene  # noqa: E402
 from vulcan_map.ui.graph_view import GraphView  # noqa: E402
@@ -60,23 +60,26 @@ def test_every_edge_item_has_backing_sockets(session: Session) -> None:
 
 
 def test_new_edge_appears_only_after_recompile(repo: Path, session: Session) -> None:
-    """A mutation must round-trip through the compiler before it renders."""
+    """A drawn edge must round-trip through the compiler before it renders."""
+    mind = Mind(repo)
     scene = GraphScene()
     scene.load(session.graph("master"))
     before = len(scene.edges)
 
-    add_edge(
-        Mind(repo), "master",
+    enqueue_add_edge(
+        mind, "master",
         from_node="telemetry.run", from_socket="path_out",
         to_node="propagator.propagate_orbit", to_socket="state0",
         evidence_file="src/telemetry.py",
     )
-    # Scene is untouched until the session reloads — it holds no independent graph.
+    # Nothing has rendered and nothing has been written — the edit is only queued.
     assert len(scene.edges) == before
+    assert mind.pending_path.exists()
 
-    session.reload()
+    session.reload()  # runs compile, which folds the queue
     scene.load(session.graph("master"))
     assert len(scene.edges) == before + 1
+    assert not mind.pending_path.exists()
 
 
 def test_edge_with_undeclared_socket_is_never_drawn(repo: Path, session: Session) -> None:
@@ -84,7 +87,7 @@ def test_edge_with_undeclared_socket_is_never_drawn(repo: Path, session: Session
 
     The scene must skip it rather than invent an anchor; V4 reports it separately.
     """
-    add_edge(
+    enqueue_add_edge(
         Mind(repo), "master",
         from_node="telemetry.run", from_socket="result",
         to_node="telemetry.write_telemetry", to_socket="data",

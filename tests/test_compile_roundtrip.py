@@ -90,6 +90,77 @@ def test_check_writes_nothing(repo: Path, mind: Mind) -> None:
     assert snapshot(mind) == before
 
 
+def test_ui_drawn_edge_folds_deterministically(repo: Path, mind: Mind) -> None:
+    """Draw in the UI layer, compile, and confirm the same edge lands identically.
+
+    Runs the whole thing twice from a clean start and compares the resulting
+    trees byte for byte: the drawn edge must reach canonical JSON through compile
+    alone, and by a path that does not vary between runs.
+    """
+    from vulcan_map.core.mutations import enqueue_add_edge
+
+    def draw_and_compile() -> dict[str, str]:
+        enqueue_add_edge(
+            mind, "master",
+            from_node="telemetry.run", from_socket="path_out",
+            to_node="propagator.propagate_orbit", to_socket="state0",
+            evidence_file="src/telemetry.py",
+            origin="human",
+        )
+        compile_mod.run(repo, check_only=False)
+        return snapshot(mind)
+
+    baseline = snapshot(mind)
+    first = draw_and_compile()
+    assert first != baseline, "drawing then compiling should change the tree"
+
+    # Reset to the pre-draw state and replay the identical gesture.
+    for rel, text in baseline.items():
+        (mind.root / rel).write_text(text, encoding="utf-8", newline="\n")
+    for rel in set(first) - set(baseline):
+        (mind.root / rel).unlink()
+
+    second = draw_and_compile()
+    assert second == first, "the same drawn edge must produce the same tree"
+
+    edge_id = "e:telemetry.run:path_out->propagator.propagate_orbit:state0"
+    edges = json.loads(mind.master_path.read_text(encoding="utf-8"))["edges"]
+    matching = [e for e in edges if e["id"] == edge_id]
+    assert len(matching) == 1
+    assert matching[0]["origin"] == "human"
+    assert matching[0]["evidence"] == {"file": "src/telemetry.py"}
+
+
+def test_compile_after_ui_draw_is_still_idempotent(repo: Path, mind: Mind) -> None:
+    from vulcan_map.core.mutations import enqueue_add_edge
+
+    enqueue_add_edge(
+        mind, "master",
+        from_node="telemetry.run", from_socket="path_out",
+        to_node="propagator.propagate_orbit", to_socket="state0",
+        evidence_file="src/telemetry.py",
+    )
+    compile_mod.run(repo, check_only=False)
+    once = snapshot(mind)
+    compile_mod.run(repo, check_only=False)
+    assert snapshot(mind) == once
+
+
+def test_pending_queue_is_not_part_of_the_compiled_tree(repo: Path, mind: Mind) -> None:
+    """The queue is transient input; after compile it should not linger."""
+    from vulcan_map.core.mutations import enqueue_add_edge
+
+    enqueue_add_edge(
+        mind, "master",
+        from_node="telemetry.run", from_socket="path_out",
+        to_node="propagator.propagate_orbit", to_socket="state0",
+        evidence_file="src/telemetry.py",
+    )
+    assert mind.pending_path.exists()
+    compile_mod.run(repo, check_only=False)
+    assert not mind.pending_path.exists()
+
+
 def test_resolved_graph_is_emitted_for_ui(repo: Path, mind: Mind) -> None:
     compile_mod.run(repo, check_only=False)
     resolved = json.loads(mind.resolved_path("master").read_text(encoding="utf-8"))

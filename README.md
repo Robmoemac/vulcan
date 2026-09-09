@@ -95,11 +95,12 @@ nodes.
 ## How it fits together
 
 ```
-vulcan_mind/graph/*.json   ──┐
+vulcan_mind/pending.json   ──┐   (queued UI edits)
+vulcan_mind/graph/*.json   ──┤
 vulcan_mind/nodes/**/*.md  ──┤
                              ├─► vulcan compile ─► _build/*.resolved.json ─► UI renders
                              │                                                    │
-                             └────────── UI mutation writes canonical ◄───────────┘
+                             └──────── UI appends an intent to the queue ◄────────┘
 ```
 
 Markdown owns *what a thing is* (prose, maths, ICD, socket declarations). JSON
@@ -107,11 +108,21 @@ owns *how things connect and lay out*. Sockets are lifted md→json; the ICD tab
 and Connections wikilinks are regenerated json→md inside marker fences, so author
 prose is byte-preserved.
 
-The UI has no independent graph state — it renders `resolved.json` and nothing
-else. Dragging a noodle writes to the canonical JSON, recompiles, and the edge
-appears because the resolved graph now contains it. An unbacked connection is
-therefore unrepresentable, not merely invalid. Hand-drawn edges are held to the
-same standard: the UI asks for the evidence file rather than inventing one.
+**`compile` is the only writer of chart files.** The UI has no independent graph
+state and no write access to canonical JSON. Dragging a noodle appends an intent
+to `pending.json`; compile folds the queue in and clears it, and the edge appears
+because the resolved graph now contains it. So a hand-drawn edge and an
+agent-written one reach disk by the same deterministic path — one authority, one
+place to test.
+
+An unbacked connection is therefore unrepresentable, not merely invalid. Hand-drawn
+edges are held to the same grounding standard as agent ones: the UI asks for the
+evidence file and rejects a path that does not exist, and V7 checks again at
+validation time.
+
+Node positions are the deliberate exception and are written directly — they are
+layout the compiler preserves rather than derives, and a drag would otherwise queue
+an intent per mouse-move.
 
 ---
 
@@ -144,6 +155,8 @@ fails by design: that is V13 telling the truth about what is finished.
 python -m pytest tests -q
 ```
 
-82 tests. Every validator rule has a test proving it fires — a rule that cannot
+97 tests. Every validator rule has a test proving it fires — a rule that cannot
 fail is not a gate. Compile idempotence is a tested invariant, because a compile
-that churned the tree would put spurious diffs in every agent run.
+that churned the tree would put spurious diffs in every agent run, and the
+UI-draw path is tested end to end: draw, compile, then replay the identical
+gesture from a clean state and compare the trees byte for byte.

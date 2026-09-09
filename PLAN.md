@@ -52,19 +52,35 @@ important anti-hallucination device in the design.
 ### P3 — The UI cannot represent an edge that isn't in the JSON
 
 The bidirectional invariant is architectural, not a post-hoc check. Data flows in exactly
-one direction:
+one direction, and **the compiler is the only writer of canonical chart files**:
 
 ```
+   pending.json (queued UI intents)
+        │
+        ▼
 canonical JSON ──► compiler ──► _build/<chart>.resolved.json ──► UI renders
       ▲                                                              │
-      └───────────────── UI mutation writes canonical ◄──────────────┘
+      └──────── UI appends an intent to the queue ◄──────────────────┘
 ```
 
-The UI has **no independent graph-construction logic**. It renders `resolved.json` and
-nothing else. A user dragging a noodle writes to the canonical JSON and triggers a
-recompile; the new edge appears only after it round-trips through the compiler. It is
-therefore *impossible* by construction for the UI to display an unbacked connection.
-The validator (V3/V4/V15) is a second line of defence against hand-edited files.
+The UI has **no independent graph-construction logic and no write access to chart
+files**. It renders `resolved.json` and nothing else. A user dragging a noodle appends
+an *intent* to `vulcan_mind/pending.json`; the compiler folds that queue into canonical
+JSON, and the new edge appears only after the round trip. It is therefore *impossible*
+by construction for the UI to display an unbacked connection, and equally impossible for
+it to persist one by a path the compiler did not take.
+
+Routing hand edits through the queue rather than letting the UI write directly means a
+human-drawn edge and an agent-written one reach disk by the same deterministic code
+path. There is one authority on what a chart file contains, so there is one place where
+that behaviour can drift — and one place to test it.
+
+The queue is authored input, not generated output, so it lives beside the charts rather
+than under `_build/` and survives anything that clears the build directory. It carries no
+timestamps or wall-clock ordering, and folding is idempotent: edge identity is derived
+from endpoints, so re-folding an applied intent is a no-op rather than a duplicate.
+
+The validator (V3/V4/V15) remains a second line of defence against hand-edited files.
 
 ### P4 — Long runs must survive context exhaustion
 
@@ -240,6 +256,8 @@ vulcan_map/
       config.py                   # load/validate vulcan.config.yaml, region resolution
       model.py                    # dataclasses: Chart, Node, Edge, Socket
       frontmatter.py              # YAML frontmatter read/write, block-marker rewriting
+      pending.py                  # queued UI edits + the deterministic fold (§11.3)
+      mutations.py                # UI edit intents; enqueue, never write (§11.3)
       compile.py                  # the compile pipeline (§7.2)
       validate.py                 # rules V1–V16 (§8)
       grounding/                  # symbol-existence checkers
@@ -283,6 +301,7 @@ What `vulcan init` deposits. Example shown for this repo (SpaceAGORA.jl).
 <target-repo>/
   vulcan_mind/
     vulcan.config.yaml            # regions, granularity, lint config — committed
+    pending.json                   # queued UI edits awaiting compile; absent when empty
     graph/
       master.graph.json           # canonical topology, master chart
       subcharts/
@@ -515,6 +534,7 @@ The precise answer to "what is canonical" (A3):
 
 | Data | Owner file | Direction | Notes |
 |---|---|---|---|
+| Queued UI edits | `pending.json` | queue → json | authored intent; folded and cleared by compile (§11.3) |
 | Node existence, `id`, `kind` | markdown frontmatter | md → json | agent creates a doc; compiler registers the node |
 | Node prose, math, ICD text | markdown body | md only | never in JSON |
 | **Socket declarations** | markdown frontmatter | md → json | lifted; JSON copy is a mirror |
@@ -540,7 +560,15 @@ Deterministic, idempotent, no network, no model calls.
                        markdown → (frontmatter dict, body, generated-block spans).
                        Parse failures are hard errors; nothing is written.
 
- 4. LIFT SOCKETS       for each node doc, project frontmatter inputs/outputs into the
+ 4a. FOLD PENDING      apply queued UI edits (vulcan_mind/pending.json) to the in-memory
+                       charts, in queue order. Edge identity is derived from endpoints,
+                       so re-applying an already-folded intent is a no-op.
+                       Runs in --check mode too, so `check` validates exactly what
+                       `compile` would persist; only the write and the clear are
+                       suppressed. The queue is cleared in step 10, after the charts
+                       are safely on disk.
+
+ 4b. LIFT SOCKETS      for each node doc, project frontmatter inputs/outputs into the
                        chart JSON's sockets field.
                          - md declares a socket JSON lacks     → add    (silent)
                          - JSON has a socket md lacks          → ERROR V10 (never auto-delete;
@@ -567,8 +595,12 @@ Deterministic, idempotent, no network, no model calls.
                          <!-- vulcan:connections:begin --> … <!-- vulcan:connections:end -->
                        Author prose outside the fences is byte-preserved.
 
-10. EMIT               write _build/*.resolved.json, index.json, validation-report.json,
-                       worklist.json — atomically (tmp file + os.replace).
+10. EMIT               write the canonical charts, then _build/*.resolved.json,
+                       index.json, validation-report.json, worklist.json — atomically
+                       (tmp file + os.replace). Clear pending.json last, once the
+                       charts are on disk. Validation errors do not block the clear:
+                       the intent now lives in canonical JSON where the findings point
+                       at it, and replaying the queue would duplicate intent, not fix it.
 
 11. EXIT               0 if no errors; 1 if any error. --strict promotes warnings to errors.
 ```
@@ -1132,15 +1164,36 @@ Per spec: sidebar lists charts, centre pane is the viewer/editor.
 
 ### 11.3 Enforcing the invariant in the UI (P3)
 
-Every mutation is a `QUndoCommand` whose `redo()` **writes the canonical JSON, invokes the
-compiler, and reloads the resolved graph**. The scene is never mutated directly. Concretely:
-dragging a noodle from socket A to socket B does *not* create an edge item — it writes an
-edge to `master.graph.json`, recompiles, and the edge item appears because the resolved
-graph now contains it. If the compiler rejects it (e.g. it would create a cycle, V5), the
-noodle never appears and the status bar shows the error.
+The scene is never mutated directly, and the UI never writes a chart file. Dragging a
+noodle from socket A to socket B does *not* create an edge item. It:
+
+1. prompts for the evidence file and rejects a path that does not exist on disk;
+2. appends an `add_edge` intent to `vulcan_mind/pending.json`;
+3. triggers a recompile, which folds the queue into `master.graph.json` and clears it;
+4. reloads the resolved graph — and the edge item appears because that graph now
+   contains it.
+
+If the result is invalid (e.g. the new edge closes a cycle, V5), the edge is still folded
+in — it is what the person asked for — and the status bar reports the failure against the
+persisted map rather than silently discarding the edit.
+
+Edge **removal** takes the same route, for the same reason: if creation were queued but
+deletion written directly, "the UI never writes canonical topology" would be false, and
+the guarantee is only worth as much as its exceptions.
+
+**Node positions are the deliberate exception** and are written directly. They are
+presentation state the compiler preserves rather than derives (D6), they carry no
+semantics for the validator to check, and a single drag would otherwise enqueue an intent
+per mouse-move event. The queue is for topology; position is layout.
 
 This makes "a connection in the UI that isn't in the JSON" unrepresentable rather than
-merely invalid.
+merely invalid, and makes "a connection in the JSON that the compiler did not put there"
+equally unrepresentable.
+
+**Evidence is checked twice, on purpose.** `enqueue_add_edge` rejects a nonexistent file
+so the person drawing gets the error immediately, in the dialog. V7 checks again at
+validation time, because the queue is not the only way an edge can arrive. Neither check
+is redundant: the first is for feedback latency, the second is the actual gate.
 
 ---
 

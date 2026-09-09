@@ -38,13 +38,21 @@ def run(args: argparse.Namespace) -> int:
     ws = result.workspace
 
     print()
-    print(
-        colour(
-            f"{len(ws.all_nodes())} nodes · {sum(len(list(c.all_edges())) for c in ws.charts)} edges "
-            f"· region {ws.region.name!r} · {len(ws.charts)} chart(s)",
-            DIM,
-        )
+    summary = (
+        f"{len(ws.all_nodes())} nodes · "
+        f"{sum(len(list(c.all_edges())) for c in ws.charts)} edges "
+        f"· region {ws.region.name!r} · {len(ws.charts)} chart(s)"
     )
+    print(colour(summary, DIM))
+    if result.pending_applied:
+        # check validates the folded result but writes nothing, so say so plainly.
+        print(
+            colour(
+                f"includes {result.pending_applied} queued UI edit(s) not yet written "
+                "— run `vulcan compile` to fold them in",
+                YELLOW,
+            )
+        )
 
     if report.ok(args.strict):
         print(colour("check: PASS", GREEN))

@@ -52,6 +52,15 @@ class Mind:
         return self.graph_dir / "master.graph.json"
 
     @property
+    def pending_path(self) -> Path:
+        """Queue of UI edits awaiting the next compile.
+
+        Deliberately *not* under _build/: these are authored intent, not
+        generated output, and must survive anything that clears the build dir.
+        """
+        return self.root / "pending.json"
+
+    @property
     def worklist_path(self) -> Path:
         return self.build_dir / "worklist.json"
 

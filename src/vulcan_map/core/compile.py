@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import SCHEMA_VERSION, __version__
+from . import pending as pending_mod
 from .frontmatter import CONNECTIONS_BLOCK, ICD_BLOCK, NodeDoc, render
 from .layout import assign_positions
 from .model import Chart, Edge, Node, ResolvedGraph, Socket
@@ -33,6 +34,7 @@ class CompileResult:
     written: list[Path] = field(default_factory=list)
     sockets_lifted: int = 0
     positions_assigned: int = 0
+    pending_applied: int = 0
     check_only: bool = False
 
     @property
@@ -174,6 +176,16 @@ def run(
     ws = load_workspace(repo_root, region)
     mind = ws.mind
 
+    # Step 4a — fold queued UI edits into the in-memory charts before anything
+    # else reads them. Done in check mode too, so `check` validates exactly what
+    # `compile` would persist; only the writing and clearing are suppressed.
+    from .workspace import LoadIssue
+
+    queue = pending_mod.load(mind.pending_path)
+    applied, problems = pending_mod.fold(ws.charts, queue)
+    for problem in problems:
+        ws.issues.append(LoadIssue(path=mind.pending_path, message=problem, rule="V3"))
+
     lifted = lift_sockets(ws)
 
     master = ws.master
@@ -182,8 +194,6 @@ def run(
         try:
             resolved[chart.chart_id] = resolve(chart, master, ws.region)
         except Exception as exc:
-            from .workspace import LoadIssue
-
             ws.issues.append(LoadIssue(path=chart.path or mind.root, message=str(exc), rule="V3"))
 
     assigned = 0
@@ -206,12 +216,19 @@ def run(
         resolved=resolved,
         sockets_lifted=lifted,
         positions_assigned=assigned,
+        pending_applied=applied,
         check_only=check_only,
     )
     if check_only:
         return result
 
     _write_all(ws, mind, resolved, blocks, report, strict, result)
+
+    # Cleared only after the charts are safely on disk. Validation errors do not
+    # block clearing: the edit now lives in canonical JSON, where the findings
+    # point at it — replaying the queue would duplicate the intent, not fix it.
+    if len(queue):
+        pending_mod.clear(mind.pending_path)
     return result
 
 

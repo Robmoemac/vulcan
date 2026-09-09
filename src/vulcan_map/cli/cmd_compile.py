@@ -16,16 +16,13 @@ def run(args: argparse.Namespace) -> int:
     for f in report.findings:
         print(colour(f.format(), RED if f.severity == "error" else YELLOW))
 
-    mind = result.workspace.mind
     print()
-    print(
-        colour(
-            f"compiled · {result.sockets_lifted} socket set(s) lifted "
-            f"· {result.positions_assigned} position(s) assigned "
-            f"· {len(result.written)} file(s) written",
-            DIM,
-        )
-    )
+    parts = [f"compiled · {result.sockets_lifted} socket set(s) lifted"]
+    if result.pending_applied:
+        parts.append(f"{result.pending_applied} queued UI edit(s) folded")
+    parts.append(f"{result.positions_assigned} position(s) assigned")
+    parts.append(f"{len(result.written)} file(s) written")
+    print(colour(" · ".join(parts), DIM))
     for chart_id, graph in sorted(result.resolved.items()):
         print(f"  {chart_id:<24} {len(graph.nodes):>4} nodes  {len(graph.edges):>4} edges")
 

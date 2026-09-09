@@ -13,7 +13,9 @@ from PySide6.QtWidgets import (
 )
 
 from ..core.model import Node
-from ..core.mutations import MutationError, add_edge, owning_chart, remove_edge, set_position
+from ..core.mutations import (
+    MutationError, enqueue_add_edge, enqueue_remove_edge, owning_chart, set_position,
+)
 from . import theme
 from .doc_panel import DocPanel
 from .graph_scene import GraphScene
@@ -179,7 +181,12 @@ class MainWindow(QMainWindow):
     def _on_connection_requested(
         self, from_node: str, from_socket: str, to_node: str, to_socket: str
     ) -> None:
-        """Create an edge — but only with real evidence.
+        """Queue an edge — but only with real evidence.
+
+        The drawn edge is not written to a chart file here. It is appended to the
+        pending queue, and the compile triggered by refresh() folds it into
+        canonical JSON. Compile stays the single writer, so a hand-drawn edge
+        reaches disk by exactly the same deterministic path as any other change.
 
         A hand-drawn edge asserts the same thing an agent-written one does: that
         this connection is observable in the code. The UI therefore asks for the
@@ -198,7 +205,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            add_edge(
+            enqueue_add_edge(
                 self.session.mind,
                 self.current_chart if self.current_chart != "master" else "master",
                 from_node=from_node,
@@ -215,7 +222,8 @@ class MainWindow(QMainWindow):
         self.refresh()
         if self.session.errors:
             self.status.showMessage(
-                "Connection saved, but the map now fails validation — see status.", 8000
+                "Connection compiled in, but the map now fails validation — see status.",
+                8000,
             )
 
     def _suggest_evidence(self, node_id: str) -> str | None:
@@ -242,7 +250,7 @@ class MainWindow(QMainWindow):
             return
 
         try:
-            remove_edge(self.session.mind, chart, edge.edge_id, allow_removal=True)
+            enqueue_remove_edge(self.session.mind, chart, edge.edge_id, allow_removal=True)
         except MutationError as exc:
             QMessageBox.warning(self, "Could not delete", str(exc))
             return
