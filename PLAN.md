@@ -84,10 +84,11 @@ also rules out embedding-based similarity search — all retrieval is grep/AST/g
 ## 2. Ambiguities in the spec, and the interpretation I am planning around
 
 Flagged rather than silently resolved, per the brief. Each has my chosen reading and the
-reason. Items marked **⚠ needs owner decision** are ones where I think the alternative is
-genuinely defensible and the cost of guessing wrong is high.
+reason. **All of these are now resolved** — each carries a ✅ and a pointer to its decision
+row in §14.1. The prose below preserves the reasoning, including alternatives considered and
+rejected, so the *why* survives even though the *what* is settled.
 
-### A1 — "DAG" vs. the fact that real call graphs contain cycles ⚠
+### A1 — "DAG" vs. the fact that real call graphs contain cycles ✅ D5
 
 Recursion and mutually-recursive modules are cycles. A strict DAG cannot represent them.
 
@@ -97,7 +98,7 @@ non-feedback edges*, which preserves layered layout while keeping the map truthf
 Rejected: silently dropping back-edges (produces a map that lies), and allowing general
 cycles (breaks layered layout and the mental model the spec asks for).
 
-### A2 — What is a node? ⚠
+### A2 — What is a node? ✅ D3
 
 Function, file, module, and subsystem are all plausible granularities.
 
@@ -138,7 +139,7 @@ always mirrors the real graph. Wikilinks the author writes in *prose* are permit
 are not edges; if a prose wikilink targets a node with no corresponding edge, the
 validator emits a **warning** (V16) because that usually means a missing edge.
 
-### A5 — Is `vulcan_mind/` committed to the target repo? ⚠
+### A5 — Is `vulcan_mind/` committed to the target repo? ✅ D4
 
 **Chosen: yes, committed** (with `vulcan_mind/_build/` gitignored). The map is
 documentation with standalone review value, it needs to diff in PRs, and "installable into
@@ -166,7 +167,7 @@ be read as settled, not provisional.
 installer command for the platform, and requires explicit confirmation. Installing a
 package manager system-wide without consent is not an acceptable default.
 
-### A8 — Subchart: filtered view of the master, or an independent graph? ⚠
+### A8 — Subchart: filtered view of the master, or an independent graph? ✅ D9
 
 **Chosen: a view over the master node set.** A subchart references master nodes by ID,
 may add *finer* local nodes (via `expands`), and stores its own layout. The compiler
@@ -204,7 +205,7 @@ parser I would rely on, so the Julia grounder stays regex-based over `function` 
 occurs in a file, not for a full parse tree. Verify conda-forge availability before
 adopting any parser dependency.
 
-### A12 — Conflict between UI edits and agent regeneration ⚠
+### A12 — Conflict between UI edits and agent regeneration ✅ D6
 
 If a human repositions nodes and adds an edge, then the agent re-runs, whose version wins?
 
@@ -261,7 +262,7 @@ vulcan_map/
       subchart/SKILL.md
       augment/SKILL.md
       adapters/                   # per-agent install shims (§9.4)
-        claude_code.py  cursor.py  agents_md.py
+        claude_code.py  agents_md.py  codex.py  devin.py
     templates/
       node.md.j2
       vulcan.config.yaml.j2
@@ -303,8 +304,8 @@ What `vulcan init` deposits. Example shown for this repo (SpaceAGORA.jl).
   .claude/skills/vulcan-map/SKILL.md          # agent entry points, per adapter
   .claude/skills/vulcan-subchart/SKILL.md
   .claude/skills/vulcan-augment/SKILL.md
-  .cursor/rules/vulcan-map.mdc
-  AGENTS.md                                    # appended section, for generic agents
+  AGENTS.md                                    # appended section — serves Codex, Devin,
+                                               # and any other AGENTS.md-aware agent
 ```
 
 `nodes/` mirrors the source tree so a node's doc is findable by path intuition, and so
@@ -461,10 +462,13 @@ Edges crossing the region boundary are kept and terminate in a `kind: "external"
 | `source.lines` | `[int,int]` | — | advisory; drift is a warning, not an error |
 | `sockets` | object | ✔ | **generated** — lifted from markdown frontmatter, never hand-written |
 | `expands` | node id \| null | — | this node is a finer decomposition of that master node (A9) |
+| `covers` | `[glob]` | ✔² | files this node accounts for. Required on `module`/`group` nodes so V13 can verify coverage without a node per file (D3) |
 | `ui.pos` | `[x,y]` | — | absent ⇒ computed by layout engine; preserved across agent runs (A12) |
 | `origin` | enum | ✔ | `agent \| human` — governs deletion rights (A12) |
 
 ¹ not required for `kind ∈ {group, external}`.
+² required for `kind ∈ {module, group}`; ignored for `function`/`struct` nodes, whose
+`source.file` already establishes what they cover.
 
 **Edge**
 
@@ -596,7 +600,7 @@ Severity: **E** = error (blocks), **W** = warning (promoted to error under `--st
 | V10 | E | Socket parity between frontmatter and chart JSON |
 | V11 | E | No node's `source.file` falls outside the active region's globs (§5.3) |
 | V12 | E | **Anti-vagueness:** no banned phrase in doc prose; body ≥ `min_doc_words` |
-| V13 | E¹ | **Coverage:** every in-region source file is referenced by ≥ 1 node |
+| V13 | E¹ | **Coverage:** every in-region source file is *accounted for* — either it is some node's `source.file`, or it matches the `covers` globs of a `module`/`group` node (D3) |
 | V14 | W | No isolated nodes (degree 0) unless `kind: group` |
 | V15 | E | Generated blocks on disk match what the compiler would emit (drift detection) |
 | V16 | W | A prose wikilink to another node with no corresponding edge (A4) |
@@ -606,6 +610,46 @@ Severity: **E** = error (blocks), **W** = warning (promoted to error under `--st
 
 V13 is the rule that makes "don't stop early" enforceable: an agent that maps 40 of 300
 files fails, with the exact remaining list printed.
+
+**V13 under D3 (module-level master).** Because the master chart is module-level, requiring
+one node per file would contradict D3. Coverage is instead satisfied by *accounting*: a
+`module`/`group` node declares `covers: ["src/simulation/**"]`, and every in-region file
+matching it is accounted for. The rule still cannot be trivially satisfied — a bare
+`covers: ["src/**"]` on a single node would pass V13 but fail V14 (isolated node), V12
+(`min_doc_words` on a doc that would have to describe the whole tree), and the subchart
+obligations below. Two additional constraints close the loophole:
+
+- **V13a (E)** — a `covers` glob may not match files outside the node's own module root
+  (no node may claim the entire tree);
+- **V13b (E)** — every `module` node must be expanded by at least one subchart reaching
+  function granularity before the map is considered complete for that module.
+
+Function-level completeness is therefore a per-subchart obligation, exactly as D3 states,
+and "the master is done" never means "the map is done."
+
+### 8.1 Where validation runs — and where it does not
+
+**Decided 2026-09-08: `vulcan check` runs at map-authoring time only. It is never a CI
+merge gate.**
+
+| Context | Runs? | Notes |
+|---|---|---|
+| Agent batch loop, after every batch | ✔ | `vulcan check` — fix errors before the next batch (§9.0) |
+| Agent completion gate | ✔ | `vulcan check --strict` must exit 0; this *is* the definition of done (P1) |
+| UI, on every mutation | ✔ | round-trips through the compiler; status bar shows pass/fail (§11.3) |
+| Developer, on demand | ✔ | `vulcan check` any time |
+| **CI / merge gate** | **✘** | **not installed, by decision** |
+| **Pre-commit hook** | **✘** | same rationale |
+
+Rationale: the map is documentation, and blocking unrelated PRs on documentation drift
+makes the tool something people route around. V17 (staleness) still *reports* drift
+whenever anyone runs `check`, and the augment skill exists precisely to repair it — but
+repair is a deliberate act, not a merge blocker. Validation is concentrated where the map
+is being written, which is where errors are cheap to fix and the author has full context.
+
+Consequence to accept honestly: **maps can go stale without anything failing.** That is the
+chosen trade. Adopters who disagree can wire `vulcan check` into CI themselves — nothing
+prevents it — but `vulcan init` will not do it for them.
 
 ---
 
@@ -896,16 +940,36 @@ left its three children coarse, you are not done.
 ### 9.4 Installing skills into a target repo
 
 Agents look in different places. `vulcan init` writes adapter-specific copies from one
-source of truth in `src/vulcan_map/skills/`:
+source of truth in `src/vulcan_map/skills/`.
+
+**Baseline adapter set (decided 2026-09-08):** Claude Code, Codex, Devin, and generic
+`AGENTS.md`. Cursor is explicitly **not** in the baseline — it can be added later if
+someone needs it, since adapters are additive and cost nothing already shipped.
 
 | Agent | Destination | Format |
 |---|---|---|
 | Claude Code | `.claude/skills/<name>/SKILL.md` | YAML frontmatter (`name`, `description`) |
-| Cursor | `.cursor/rules/<name>.mdc` | MDC frontmatter (`description`, `globs`) |
-| Generic / Devin / Codex | `AGENTS.md` (appended, fenced section) | plain markdown |
+| Codex (OpenAI) | `AGENTS.md` (appended, fenced section) | plain markdown |
+| Devin (Cognition) | `AGENTS.md`, plus `.devin/` notes if the run confirms it is read | plain markdown |
+| Generic | `AGENTS.md` (appended, fenced section) | plain markdown |
+
+Three of the four baseline targets converge on `AGENTS.md`, so `agents_md.py` does the real
+work and `codex.py`/`devin.py` are thin wrappers that add agent-specific framing. This is
+deliberate: `AGENTS.md` is the emerging cross-agent convention, so the baseline is mostly
+one well-tested code path rather than four parallel ones.
+
+**Implementation-time verification required** (not an open decision — a fact to confirm
+before shipping the adapter): the exact repo-level instruction file Devin reads, and
+whether it honours `AGENTS.md` directly or needs its Knowledge feature populated. Confirm
+against current vendor docs at build time, the same way conda-forge availability was
+confirmed for §11.1. If Devin turns out to need a different location, the adapter changes;
+the skill content does not.
 
 The `{{include}}` directive is resolved at install time — emitted files are self-contained,
 since no agent runtime resolves includes.
+
+**No CI integration is installed.** `vulcan init` writes no workflow file and no pre-commit
+hook; see §14.1 and the note under §8.
 
 ---
 
@@ -1175,31 +1239,56 @@ of this project, and it is testable without a GUI.
 
 ---
 
-## 14. Decisions and open questions
+## 14. Decisions
+
+**All design decisions are closed as of 2026-09-08. There are no open questions blocking
+implementation.**
 
 ### 14.1 Decided — locked, do not revisit without an explicit change request
 
-| Ref | Decision | Date |
+| # | Ref | Decision | Date |
+|---|---|---|---|
+| D1 | **A6** | **Strict conda-only; no pip fallback.** All dependencies resolve from conda channels. | 2026-09-08 |
+| D2 | **A6 / §11.1** | **UI stack: PySide6 + a custom `QGraphicsView`/`QGraphicsScene` node editor.** NodeGraphQt ruled out (not conda-installable); vendoring considered and rejected. | 2026-09-08 |
+| D3 | **A2 / A9 / §5.1** | **Granularity: module-level master chart + function-level subcharts.** No exhaustive function-level master. Coverage (V13) is therefore satisfied at module level for the master; function-level completeness is a per-subchart obligation. | 2026-09-08 |
+| D4 | **A5 / §4** | **`vulcan_mind/` is committed to the target repo**, with `vulcan_mind/_build/` gitignored. The map is reviewable, diffable documentation, not a regenerable cache. | 2026-09-08 |
+| D5 | **A1 / §6.2 / V5** | **Recursion and mutual recursion are mapped as `kind: "feedback"` edges**, exempt from the acyclicity check and rendered as dashed noodles. Cyclic call structures are never silently dropped. | 2026-09-08 |
+| D6 | **A12 / §6.2** | **Human edits are sticky.** Agents must preserve `ui.pos` and may not delete `origin: "human"` nodes or edges without an explicit `--allow-removal` flag. | 2026-09-08 |
+| D7 | **§9.4** | **Baseline agent adapters: Claude Code, Codex, Devin, generic `AGENTS.md`.** Cursor is deliberately excluded from the baseline; adapters are additive and can be added later. | 2026-09-08 |
+| D8 | **§8.1** | **`vulcan check` never runs in CI and installs no pre-commit hook.** It runs during map creation and edits — inside the skill's own batch loop, at the completion gate, and on every UI mutation. Staleness is reported by V17, not enforced at merge. | 2026-09-08 |
+| D9 | **A8 / §6.3** | **A subchart is a view over the master node set**, not an independent graph: it references master nodes by ID and may add finer nodes via `expands`, but cannot contradict the master. *Default retained — flagged for ratification (see note below).* | 2026-09-08 |
+
+These are settled inputs to the build order in §13, not recommendations. Each is carried
+into the section named in its `Ref` column; that section is authoritative for detail.
+
+**Note on D9.** D1–D8 were explicitly ratified by the owner. D9 was not: A8 was marked as
+needing an owner decision in §2 but was omitted from the open-questions list the owner
+reviewed — an error in an earlier revision of this document. Its default (subchart-as-view)
+therefore stands unopposed rather than affirmatively chosen. It is recorded here as decided
+because the reasoning holds and nothing downstream conflicts with it, but it is the one row
+that has not been through the same confirmation as the others. Raised explicitly so it is
+not mistaken for a ratified decision.
+
+### 14.2 Open decisions
+
+**None.** This section is intentionally empty. Every ambiguity flagged in §2 has been
+resolved and recorded in §14.1.
+
+### 14.3 Facts to verify at implementation time
+
+These are **not** open decisions — no design choice depends on them, and none can reopen a
+§14.1 row. They are external facts to confirm rather than assume, in the same way
+conda-forge availability was confirmed before locking D2.
+
+| Ref | To verify | If it comes back different |
 |---|---|---|
-| **A6** | **Strict conda-only; no pip fallback.** All dependencies resolve from conda channels. | 2026-09-08 |
-| **A6 / §11.1** | **UI stack: PySide6 + a custom `QGraphicsView`/`QGraphicsScene` node editor.** NodeGraphQt is ruled out (not conda-installable); vendoring it was considered and rejected. | 2026-09-08 |
+| §9.4 | The exact repo-level instruction file Devin reads, and whether it honours `AGENTS.md` directly | The `devin.py` adapter's output path changes; skill content is unaffected |
+| §11.1 | conda-forge availability and current versions of `networkx`, `pyyaml`, `jsonschema`, `markdown-it-py`, `matplotlib` at env-creation time | Substitute a conda-installable equivalent; D1 forbids a pip fallback |
+| §2 A11 | Whether any conda-installable Julia parser exists worth adopting | Julia grounder stays regex-based, which V6 already only requires |
 
-These are settled inputs to the build order in §13, not recommendations. §11.1 carries the
-consequences.
+### 14.4 What would reopen a decision
 
-### 14.2 Still open
-
-Ordered by how much rework a wrong guess causes.
-
-1. **A2/A9 — master chart granularity.** I am planning module-level master + function-level
-   subcharts. If you want one exhaustive function-level master, say so — it changes layout,
-   performance budget, and what "complete" means for coverage.
-2. **A5 — is `vulcan_mind/` committed to the target repo?** I am assuming yes.
-3. **A1 — is dashed `feedback` edges the right treatment for recursion?** The alternative is
-   refusing to map cyclic call structures, which I think is worse.
-4. **A12 — human-edit precedence.** I am assuming human edits are sticky and agents may not
-   remove them without a flag.
-5. **Which agents must be supported at install time?** Adapters are cheap, but each needs
-   its own format and testing. I am planning Claude Code + Cursor + generic `AGENTS.md`.
-6. **Should `vulcan check` run in CI** for repos that adopt this? It would keep maps from
-   going stale (V17 catches drift), but it makes the map a merge blocker.
+For the record, so this does not get relitigated informally: a §14.1 row changes only on an
+explicit written change request from the owner, or on discovery that the decision is
+technically impossible (e.g. a required package proving unavailable under D1). Neither
+inconvenience during implementation nor an agent's preference is sufficient.
