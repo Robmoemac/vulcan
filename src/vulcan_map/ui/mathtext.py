@@ -10,15 +10,49 @@ from __future__ import annotations
 import base64
 import io
 import re
+import subprocess
+import sys
 from functools import lru_cache
 
 _DISPLAY_RE = re.compile(r"\$\$(.+?)\$\$", re.DOTALL)
 _INLINE_RE = re.compile(r"(?<!\$)\$([^$\n]+?)\$(?!\$)")
 
+# Rasterising one glyph exercises the whole Agg + FreeType path, which is where
+# a broken matplotlib build fails.
+_PROBE = (
+    "import io, matplotlib; matplotlib.use('Agg');"
+    "from matplotlib.figure import Figure;"
+    "f = Figure(figsize=(0.1, 0.1)); f.text(0, 0, 'x');"
+    "f.savefig(io.BytesIO(), format='png')"
+)
+
+
+@lru_cache(maxsize=1)
+def available() -> bool:
+    """Whether matplotlib can actually rasterise text in this environment.
+
+    Some builds abort the *process* inside `savefig` — a FreeType or font-cache
+    failure below the Python layer — which no try/except can catch. Probing once
+    in a subprocess contains that: a crash costs a subprocess, not the UI. Without
+    this, clicking a node whose doc contains maths would take down the window.
+    """
+    try:
+        result = subprocess.run(
+            [sys.executable, "-c", _PROBE],
+            capture_output=True,
+            timeout=90,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
 
 @lru_cache(maxsize=256)
 def render_latex(expr: str, fontsize: int = 13, colour: str = "#d8dee9") -> str | None:
     """Return an <img> data URI for `expr`, or None if it will not render."""
+    if not available():
+        return None
     try:
         import matplotlib
 

@@ -201,3 +201,36 @@ def test_view_fit_scales_to_content_when_laid_out(session: Session, qapp) -> Non
 
 def test_status_text_reports_check_state(session: Session) -> None:
     assert "check: PASS" in session.status_text("master")
+
+
+def test_math_falls_back_to_source_when_unavailable(monkeypatch) -> None:
+    """A broken matplotlib must degrade the panel, never take down the UI.
+
+    Some builds abort the process inside savefig, which no try/except can catch,
+    so availability is probed once in a subprocess and rendering is skipped when
+    it fails.
+    """
+    from vulcan_map.ui import mathtext
+
+    monkeypatch.setattr(mathtext, "available", lambda: False)
+    mathtext.render_latex.cache_clear()
+
+    out = mathtext.substitute("Inline $x^2$ and\n\n$$E = mc^2$$\n")
+    assert "<code>x^2</code>" in out
+    assert "<pre>E = mc^2</pre>" in out
+    assert "data:image" not in out
+    mathtext.render_latex.cache_clear()
+
+
+def test_doc_panel_renders_a_node_with_math(repo: Path, session: Session, qapp) -> None:
+    """Selecting a node must not crash regardless of matplotlib's state."""
+    from vulcan_map.ui.doc_panel import DocPanel
+
+    panel = DocPanel()
+    path = session.doc_path("master", "propagator.propagate_orbit")
+    assert path is not None and path.exists()
+
+    panel.show_doc(path, "propagator.propagate_orbit")
+    html = panel.browser.toHtml()
+    assert "propagate_orbit" in html
+    assert panel.title.text() == "propagator.propagate_orbit"
