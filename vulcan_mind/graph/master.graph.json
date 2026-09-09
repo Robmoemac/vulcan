@@ -1,0 +1,538 @@
+{
+  "schema_version": "1.0.0",
+  "chart_id": "master",
+  "chart_kind": "master",
+  "title": "vulcan-map — Grounding Subsystem",
+  "region": "grounding",
+  "provenance": {
+    "generator": "vulcan-map/0.1.0",
+    "repo_commit": "380caed"
+  },
+  "nodes": [
+    {
+      "id": "grounding.base.grounder",
+      "label": "Grounder",
+      "kind": "struct",
+      "doc": "nodes/grounding/grounder.md",
+      "source": {
+        "file": "src/vulcan_map/core/grounding/base.py",
+        "symbol": "Grounder",
+        "lines": [
+          14,
+          34
+        ]
+      },
+      "sockets": {
+        "outputs": [
+          {
+            "id": "interface",
+            "type": "ABC",
+            "units": "n/a",
+            "description": "The abstract contract every concrete grounder implements."
+          }
+        ]
+      },
+      "ui": {
+        "pos": [
+          80.0,
+          80.0
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "grounding.base.check",
+      "label": "check",
+      "kind": "function",
+      "doc": "nodes/grounding/check.md",
+      "source": {
+        "file": "src/vulcan_map/core/grounding/base.py",
+        "symbol": "check",
+        "lines": [
+          29,
+          34
+        ]
+      },
+      "sockets": {
+        "inputs": [
+          {
+            "id": "impl",
+            "type": "Callable",
+            "units": "n/a",
+            "required": true,
+            "description": "The concrete contains_symbol supplied by the subclass."
+          },
+          {
+            "id": "path",
+            "type": "Path",
+            "units": "n/a",
+            "required": true,
+            "description": "Absolute path to the source file being checked."
+          }
+        ],
+        "outputs": [
+          {
+            "id": "verdict",
+            "type": "bool",
+            "units": "n/a",
+            "description": "True when the symbol occurs in the file; False on any read error."
+          }
+        ]
+      },
+      "ui": {
+        "pos": [
+          400.0,
+          80.0
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "grounding.regex.regex_grounder",
+      "label": "RegexGrounder",
+      "kind": "struct",
+      "doc": "nodes/grounding/regex_grounder.md",
+      "source": {
+        "file": "src/vulcan_map/core/grounding/regex.py",
+        "symbol": "RegexGrounder",
+        "lines": [
+          10,
+          16
+        ]
+      },
+      "sockets": {
+        "inputs": [
+          {
+            "id": "interface",
+            "type": "Grounder",
+            "units": "n/a",
+            "required": true,
+            "description": "The abstract base contract this class implements."
+          }
+        ],
+        "outputs": [
+          {
+            "id": "matcher",
+            "type": "Grounder",
+            "units": "n/a",
+            "description": "A language-agnostic whole-word matcher, also used as a fallback."
+          }
+        ]
+      },
+      "ui": {
+        "pos": [
+          400.0,
+          230.0
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "grounding.julia.decl_patterns",
+      "label": "_decl_patterns",
+      "kind": "function",
+      "doc": "nodes/grounding/decl_patterns.md",
+      "source": {
+        "file": "src/vulcan_map/core/grounding/julia.py",
+        "symbol": "_decl_patterns",
+        "lines": [
+          15,
+          28
+        ]
+      },
+      "sockets": {
+        "inputs": [
+          {
+            "id": "symbol",
+            "type": "str",
+            "units": "n/a",
+            "required": true,
+            "description": "The Julia identifier whose declaration forms are being sought."
+          }
+        ],
+        "outputs": [
+          {
+            "id": "patterns",
+            "type": "list",
+            "units": "n/a",
+            "description": "Compiled multiline patterns, one per Julia declaration form."
+          }
+        ]
+      },
+      "ui": {
+        "pos": [
+          80.0,
+          230.0
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "grounding.julia.julia_grounder",
+      "label": "JuliaGrounder",
+      "kind": "struct",
+      "doc": "nodes/grounding/julia_grounder.md",
+      "source": {
+        "file": "src/vulcan_map/core/grounding/julia.py",
+        "symbol": "JuliaGrounder",
+        "lines": [
+          30,
+          50
+        ]
+      },
+      "sockets": {
+        "inputs": [
+          {
+            "id": "interface",
+            "type": "Grounder",
+            "units": "n/a",
+            "required": true,
+            "description": "The abstract base contract this class implements."
+          },
+          {
+            "id": "patterns",
+            "type": "list",
+            "units": "n/a",
+            "required": true,
+            "description": "Declaration patterns from _decl_patterns."
+          },
+          {
+            "id": "fallback",
+            "type": "Grounder",
+            "units": "n/a",
+            "required": true,
+            "description": "The RegexGrounder used when no declaration form matches."
+          }
+        ],
+        "outputs": [
+          {
+            "id": "grounder",
+            "type": "Grounder",
+            "units": "n/a",
+            "description": "Registered under the .jl suffix in the registry."
+          }
+        ]
+      },
+      "ui": {
+        "pos": [
+          720.0,
+          80.0
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "grounding.python.python_grounder",
+      "label": "PythonGrounder",
+      "kind": "struct",
+      "doc": "nodes/grounding/python_grounder.md",
+      "source": {
+        "file": "src/vulcan_map/core/grounding/python.py",
+        "symbol": "PythonGrounder",
+        "lines": [
+          11,
+          49
+        ]
+      },
+      "sockets": {
+        "inputs": [
+          {
+            "id": "interface",
+            "type": "Grounder",
+            "units": "n/a",
+            "required": true,
+            "description": "The abstract base contract this class implements."
+          },
+          {
+            "id": "fallback",
+            "type": "Grounder",
+            "units": "n/a",
+            "required": true,
+            "description": "The RegexGrounder used when the file will not parse."
+          }
+        ],
+        "outputs": [
+          {
+            "id": "grounder",
+            "type": "Grounder",
+            "units": "n/a",
+            "description": "Registered under the .py suffix in the registry."
+          }
+        ]
+      },
+      "ui": {
+        "pos": [
+          720.0,
+          230.0
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "grounding.registry.grounder_for",
+      "label": "grounder_for",
+      "kind": "function",
+      "doc": "nodes/grounding/grounder_for.md",
+      "source": {
+        "file": "src/vulcan_map/core/grounding/__init__.py",
+        "symbol": "grounder_for",
+        "lines": [
+          26,
+          32
+        ]
+      },
+      "sockets": {
+        "inputs": [
+          {
+            "id": "julia",
+            "type": "Grounder",
+            "units": "n/a",
+            "required": true,
+            "description": "The Julia grounder, registered under .jl."
+          },
+          {
+            "id": "python",
+            "type": "Grounder",
+            "units": "n/a",
+            "required": true,
+            "description": "The Python grounder, registered under .py."
+          },
+          {
+            "id": "regex",
+            "type": "Grounder",
+            "units": "n/a",
+            "required": true,
+            "description": "The language-agnostic grounder, used as the default."
+          }
+        ],
+        "outputs": [
+          {
+            "id": "selected",
+            "type": "Grounder",
+            "units": "n/a",
+            "description": "The grounder the validator will use for one file."
+          }
+        ]
+      },
+      "ui": {
+        "pos": [
+          1040.0,
+          80.0
+        ]
+      },
+      "origin": "agent"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e:grounding.base.grounder:interface->grounding.base.check:impl",
+      "from": {
+        "node": "grounding.base.grounder",
+        "socket": "interface"
+      },
+      "to": {
+        "node": "grounding.base.check",
+        "socket": "impl"
+      },
+      "kind": "call",
+      "label": "self.contains_symbol",
+      "evidence": {
+        "file": "src/vulcan_map/core/grounding/base.py",
+        "lines": [
+          33,
+          34
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "e:grounding.base.grounder:interface->grounding.regex.regex_grounder:interface",
+      "from": {
+        "node": "grounding.base.grounder",
+        "socket": "interface"
+      },
+      "to": {
+        "node": "grounding.regex.regex_grounder",
+        "socket": "interface"
+      },
+      "kind": "reads",
+      "label": "implements",
+      "evidence": {
+        "file": "src/vulcan_map/core/grounding/regex.py",
+        "lines": [
+          10,
+          10
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "e:grounding.base.grounder:interface->grounding.julia.julia_grounder:interface",
+      "from": {
+        "node": "grounding.base.grounder",
+        "socket": "interface"
+      },
+      "to": {
+        "node": "grounding.julia.julia_grounder",
+        "socket": "interface"
+      },
+      "kind": "reads",
+      "label": "implements",
+      "evidence": {
+        "file": "src/vulcan_map/core/grounding/julia.py",
+        "lines": [
+          30,
+          30
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "e:grounding.base.grounder:interface->grounding.python.python_grounder:interface",
+      "from": {
+        "node": "grounding.base.grounder",
+        "socket": "interface"
+      },
+      "to": {
+        "node": "grounding.python.python_grounder",
+        "socket": "interface"
+      },
+      "kind": "reads",
+      "label": "implements",
+      "evidence": {
+        "file": "src/vulcan_map/core/grounding/python.py",
+        "lines": [
+          11,
+          11
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "e:grounding.regex.regex_grounder:matcher->grounding.julia.julia_grounder:fallback",
+      "from": {
+        "node": "grounding.regex.regex_grounder",
+        "socket": "matcher"
+      },
+      "to": {
+        "node": "grounding.julia.julia_grounder",
+        "socket": "fallback"
+      },
+      "kind": "dataflow",
+      "label": "_fallback",
+      "evidence": {
+        "file": "src/vulcan_map/core/grounding/julia.py",
+        "lines": [
+          33,
+          34
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "e:grounding.regex.regex_grounder:matcher->grounding.python.python_grounder:fallback",
+      "from": {
+        "node": "grounding.regex.regex_grounder",
+        "socket": "matcher"
+      },
+      "to": {
+        "node": "grounding.python.python_grounder",
+        "socket": "fallback"
+      },
+      "kind": "dataflow",
+      "label": "_fallback",
+      "evidence": {
+        "file": "src/vulcan_map/core/grounding/python.py",
+        "lines": [
+          14,
+          15
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "e:grounding.julia.decl_patterns:patterns->grounding.julia.julia_grounder:patterns",
+      "from": {
+        "node": "grounding.julia.decl_patterns",
+        "socket": "patterns"
+      },
+      "to": {
+        "node": "grounding.julia.julia_grounder",
+        "socket": "patterns"
+      },
+      "kind": "dataflow",
+      "label": "declaration patterns",
+      "evidence": {
+        "file": "src/vulcan_map/core/grounding/julia.py",
+        "lines": [
+          39,
+          40
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "e:grounding.julia.julia_grounder:grounder->grounding.registry.grounder_for:julia",
+      "from": {
+        "node": "grounding.julia.julia_grounder",
+        "socket": "grounder"
+      },
+      "to": {
+        "node": "grounding.registry.grounder_for",
+        "socket": "julia"
+      },
+      "kind": "dataflow",
+      "label": ".jl",
+      "evidence": {
+        "file": "src/vulcan_map/core/grounding/__init__.py",
+        "lines": [
+          16,
+          21
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "e:grounding.python.python_grounder:grounder->grounding.registry.grounder_for:python",
+      "from": {
+        "node": "grounding.python.python_grounder",
+        "socket": "grounder"
+      },
+      "to": {
+        "node": "grounding.registry.grounder_for",
+        "socket": "python"
+      },
+      "kind": "dataflow",
+      "label": ".py",
+      "evidence": {
+        "file": "src/vulcan_map/core/grounding/__init__.py",
+        "lines": [
+          16,
+          22
+        ]
+      },
+      "origin": "agent"
+    },
+    {
+      "id": "e:grounding.regex.regex_grounder:matcher->grounding.registry.grounder_for:regex",
+      "from": {
+        "node": "grounding.regex.regex_grounder",
+        "socket": "matcher"
+      },
+      "to": {
+        "node": "grounding.registry.grounder_for",
+        "socket": "regex"
+      },
+      "kind": "dataflow",
+      "label": "_FALLBACK",
+      "evidence": {
+        "file": "src/vulcan_map/core/grounding/__init__.py",
+        "lines": [
+          13,
+          20
+        ]
+      },
+      "origin": "agent"
+    }
+  ]
+}

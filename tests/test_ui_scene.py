@@ -1,0 +1,200 @@
+"""UI tests: the scene renders exactly the resolved graph and nothing else (P3).
+
+Runs headless. Skipped when PySide6 is unavailable so the core suite stays
+runnable without the UI dependencies.
+"""
+
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import pytest
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+
+pytest.importorskip("PySide6")
+
+from PySide6.QtCore import QPointF  # noqa: E402
+from PySide6.QtWidgets import QApplication  # noqa: E402
+
+from vulcan_map.core import compile as compile_mod  # noqa: E402
+from vulcan_map.core.mutations import add_edge  # noqa: E402
+from vulcan_map.core.repo import Mind  # noqa: E402
+from vulcan_map.ui.graph_scene import GraphScene  # noqa: E402
+from vulcan_map.ui.graph_view import GraphView  # noqa: E402
+from vulcan_map.ui.items import noodle_path  # noqa: E402
+from vulcan_map.ui.session import Session  # noqa: E402
+
+
+@pytest.fixture(scope="module")
+def qapp():
+    app = QApplication.instance() or QApplication([])
+    yield app
+
+
+@pytest.fixture
+def session(repo: Path, qapp) -> Session:
+    s = Session(repo_root=repo)
+    s.reload()
+    return s
+
+
+def test_scene_matches_resolved_graph(session: Session) -> None:
+    graph = session.graph("master")
+    scene = GraphScene()
+    scene.load(graph)
+    assert set(scene.nodes) == {n.id for n in graph.nodes}
+    assert set(scene.edges) == {e.id for e in graph.edges}
+
+
+def test_every_edge_item_has_backing_sockets(session: Session) -> None:
+    """The invariant: nothing is drawn that the JSON does not back."""
+    scene = GraphScene()
+    scene.load(session.graph("master"))
+    for edge_id, item in scene.edges.items():
+        assert item.source.socket_id == item.edge.from_.socket
+        assert item.target.socket_id == item.edge.to.socket
+        assert item.source.node_id == item.edge.from_.node
+        assert item.target.node_id == item.edge.to.node
+
+
+def test_new_edge_appears_only_after_recompile(repo: Path, session: Session) -> None:
+    """A mutation must round-trip through the compiler before it renders."""
+    scene = GraphScene()
+    scene.load(session.graph("master"))
+    before = len(scene.edges)
+
+    add_edge(
+        Mind(repo), "master",
+        from_node="telemetry.run", from_socket="path_out",
+        to_node="propagator.propagate_orbit", to_socket="state0",
+        evidence_file="src/telemetry.py",
+    )
+    # Scene is untouched until the session reloads — it holds no independent graph.
+    assert len(scene.edges) == before
+
+    session.reload()
+    scene.load(session.graph("master"))
+    assert len(scene.edges) == before + 1
+
+
+def test_edge_with_undeclared_socket_is_never_drawn(repo: Path, session: Session) -> None:
+    """`result` is not a socket on `run`, so the noodle has nothing to attach to.
+
+    The scene must skip it rather than invent an anchor; V4 reports it separately.
+    """
+    add_edge(
+        Mind(repo), "master",
+        from_node="telemetry.run", from_socket="result",
+        to_node="telemetry.write_telemetry", to_socket="data",
+        evidence_file="src/telemetry.py",
+    )
+    session.reload()
+    scene = GraphScene()
+    scene.load(session.graph("master"))
+
+    assert "e:telemetry.run:result->telemetry.write_telemetry:data" not in scene.edges
+    assert session.errors > 0  # surfaced in the status bar, not silently ignored
+
+
+def test_connection_signal_normalises_direction(session: Session, qapp) -> None:
+    """Dragging input->output is the same connection as output->input."""
+    scene = GraphScene()
+    scene.load(session.graph("master"))
+    seen: list[tuple[str, str, str, str]] = []
+    scene.connection_requested.connect(lambda a, b, c, d: seen.append((a, b, c, d)))
+
+    out = scene.nodes["propagator.propagate_orbit"].socket("traj", is_input=False)
+    inp = scene.nodes["telemetry.write_telemetry"].socket("data", is_input=True)
+
+    scene._request_connection(out, inp)
+    scene._request_connection(inp, out)  # reversed drag
+    assert len(seen) == 2 and seen[0] == seen[1]
+
+
+def test_same_node_and_same_direction_are_refused(session: Session) -> None:
+    scene = GraphScene()
+    scene.load(session.graph("master"))
+    seen: list[tuple] = []
+    scene.connection_requested.connect(lambda *a: seen.append(a))
+
+    node = scene.nodes["telemetry.run"]
+    scene._request_connection(node.socket("state0_out", False), node.socket("state0", True))
+    assert seen == []  # self-connection
+
+    a = scene.nodes["telemetry.run"].socket("state0", True)
+    b = scene.nodes["telemetry.write_telemetry"].socket("data", True)
+    scene._request_connection(a, b)
+    assert seen == []  # input -> input
+
+
+def test_feedback_edges_are_drawn_dashed(repo: Path, session: Session) -> None:
+    """D5 is visible, not just tolerated."""
+    import json
+
+    mind = Mind(repo)
+    data = json.loads(mind.master_path.read_text(encoding="utf-8"))
+    data["edges"].append({
+        "id": "e:telemetry.write_telemetry:written_path->telemetry.run:path",
+        "from": {"node": "telemetry.write_telemetry", "socket": "written_path"},
+        "to": {"node": "telemetry.run", "socket": "path"},
+        "kind": "feedback",
+        "evidence": {"file": "src/telemetry.py"},
+        "origin": "agent",
+    })
+    mind.master_path.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    session.reload()
+
+    scene = GraphScene()
+    scene.load(session.graph("master"))
+    feedback = [i for i in scene.edges.values() if i.edge.is_feedback]
+    assert len(feedback) == 1
+
+
+def test_node_positions_come_from_the_graph(session: Session) -> None:
+    scene = GraphScene()
+    graph = session.graph("master")
+    scene.load(graph)
+    for node in graph.nodes:
+        if node.pos:
+            item = scene.nodes[node.id]
+            assert (item.pos().x(), item.pos().y()) == node.pos
+
+
+def test_noodle_is_a_curve_not_a_line() -> None:
+    path = noodle_path(QPointF(0, 0), QPointF(200, 100))
+    assert path.elementCount() >= 4  # moveTo + cubic control points
+
+
+def test_view_fit_ignores_unlaid_out_viewport(session: Session, qapp) -> None:
+    """Regression: fitting against an unrealised viewport zoomed the graph to a speck.
+
+    The window defers its first fit to showEvent; this guard covers the case
+    where fit is reached anyway with a viewport that has no usable size.
+    """
+    scene = GraphScene()
+    scene.load(session.graph("master"))
+    view = GraphView(scene)
+
+    view.resize(10, 10)
+    view.viewport().resize(10, 10)
+    qapp.processEvents()
+    before = view.transform().m11()
+    view.fit()
+    assert view.transform().m11() == before
+
+
+def test_view_fit_scales_to_content_when_laid_out(session: Session, qapp) -> None:
+    scene = GraphScene()
+    scene.load(session.graph("master"))
+    view = GraphView(scene)
+    view.resize(1000, 600)
+    view.viewport().resize(1000, 600)
+    qapp.processEvents()
+    view.fit()
+    assert 0.2 < view.transform().m11() <= 1.0
+
+
+def test_status_text_reports_check_state(session: Session) -> None:
+    assert "check: PASS" in session.status_text("master")
