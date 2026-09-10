@@ -112,6 +112,41 @@ def run(args: argparse.Namespace) -> int:
     return _add_to_path(d)
 
 
+def _posix_style(d: Path) -> str:
+    """Windows path rendered for a POSIX-ish shell (Git Bash)."""
+    s = str(d).replace("\\", "/")
+    if len(s) > 1 and s[1] == ":":
+        s = f"/{s[0].lower()}{s[2:]}"
+    return s
+
+
+def _broadcast_environment_change() -> bool:
+    """Tell running processes the environment changed.
+
+    Writing HKCU\\Environment alone is not enough: Explorer caches the block it
+    hands to every process it launches, so without this broadcast even a shell
+    opened *after* the change inherits the stale PATH until the user logs out.
+    """
+    import ctypes
+    from ctypes import wintypes
+
+    HWND_BROADCAST = 0xFFFF
+    WM_SETTINGCHANGE = 0x001A
+    SMTO_ABORTIFHUNG = 0x0002
+
+    send = ctypes.windll.user32.SendMessageTimeoutW
+    send.argtypes = [
+        wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPCWSTR,
+        wintypes.UINT, wintypes.UINT, ctypes.POINTER(wintypes.DWORD),
+    ]
+    result = wintypes.DWORD()
+    ok = send(
+        HWND_BROADCAST, WM_SETTINGCHANGE, 0, "Environment",
+        SMTO_ABORTIFHUNG, 5000, ctypes.byref(result),
+    )
+    return bool(ok)
+
+
 def _add_to_path(d: Path) -> int:
     if WINDOWS:
         # Registry rather than setx: setx truncates PATH at 1024 characters.
@@ -127,7 +162,20 @@ def _add_to_path(d: Path) -> int:
             if str(d) not in parts:
                 parts.append(str(d))
                 winreg.SetValueEx(key, "Path", 0, kind, os.pathsep.join(parts))
-        print(colour(f"added {d} to user PATH (open a new shell to pick it up)", GREEN))
+
+        broadcast = _broadcast_environment_change()
+        print(colour(f"added {d} to user PATH", GREEN))
+        if broadcast:
+            print("Open a NEW shell to pick it up (this one keeps its old PATH).")
+        else:
+            print(colour(
+                "Could not broadcast the change; you may need to sign out and back in.",
+                YELLOW,
+            ))
+        print(colour("To use it in the shell you are in right now:", DIM))
+        print(f'    $env:PATH = "{d};$env:PATH"      # PowerShell')
+        print(f'    set "PATH={d};%PATH%"            # cmd')
+        print(f'    export PATH="{_posix_style(d)}:$PATH"   # bash')
         return 0
 
     profile = Path.home() / ".profile"
