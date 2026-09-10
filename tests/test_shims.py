@@ -124,3 +124,17 @@ def test_dry_run_writes_nothing(shim_dir: Path, capsys) -> None:
     assert shim.run(argparse.Namespace(dry_run=True, path=False)) == 0
     assert not shim_dir.exists()
     assert "dry run" in capsys.readouterr().out
+
+
+def test_shim_carries_source_path_when_not_installed(shim_dir: Path) -> None:
+    """Running from a checkout, the shim must set PYTHONPATH itself.
+
+    Otherwise `python -m vulcan_map.cli` fails with ModuleNotFoundError for
+    anyone who has not pip-installed the package — which, under the conda-only
+    rule, is everyone.
+    """
+    src = shim.source_root()
+    assert src is not None, "test suite runs from a source checkout"
+    for text in shim.planned_files(Path(sys.executable)).values():
+        assert str(src) in text
+        assert "PYTHONPATH" in text

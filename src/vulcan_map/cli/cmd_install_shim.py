@@ -26,26 +26,44 @@ def shim_dir() -> Path:
     return Path.home() / ".local" / "bin"
 
 
-def _posix_shim(python: Path) -> str:
-    return f'#!/usr/bin/env sh\nexec "{python}" -m vulcan_map.cli "$@"\n'
+def source_root() -> Path | None:
+    """The `src` directory when running from a checkout rather than an install.
+
+    The shim must carry it, otherwise `python -m vulcan_map.cli` fails with
+    ModuleNotFoundError for anyone who has not installed the package.
+    """
+    import vulcan_map
+
+    pkg = Path(vulcan_map.__file__).resolve().parent  # .../src/vulcan_map
+    src = pkg.parent
+    in_site = any(part in ("site-packages", "dist-packages") for part in src.parts)
+    return None if in_site else src
 
 
-def _cmd_shim(python: Path) -> str:
-    return f'@echo off\r\n"{python}" -m vulcan_map.cli %*\r\n'
+def _posix_shim(python: Path, src: Path | None) -> str:
+    export = f'PYTHONPATH="{src}${{PYTHONPATH:+:$PYTHONPATH}}"\nexport PYTHONPATH\n' if src else ""
+    return f'#!/usr/bin/env sh\n{export}exec "{python}" -m vulcan_map.cli "$@"\n'
 
 
-def _ps1_shim(python: Path) -> str:
-    return f'& "{python}" -m vulcan_map.cli @args\r\nexit $LASTEXITCODE\r\n'
+def _cmd_shim(python: Path, src: Path | None) -> str:
+    setpath = f'set "PYTHONPATH={src};%PYTHONPATH%"\r\n' if src else ""
+    return f'@echo off\r\n{setpath}"{python}" -m vulcan_map.cli %*\r\n'
+
+
+def _ps1_shim(python: Path, src: Path | None) -> str:
+    setpath = f'$env:PYTHONPATH = "{src};" + $env:PYTHONPATH\r\n' if src else ""
+    return f'{setpath}& "{python}" -m vulcan_map.cli @args\r\nexit $LASTEXITCODE\r\n'
 
 
 def planned_files(python: Path) -> dict[Path, str]:
     d = shim_dir()
+    src = source_root()
     if WINDOWS:
         return {
-            d / "vulcan.cmd": _cmd_shim(python),
-            d / "vulcan.ps1": _ps1_shim(python),
+            d / "vulcan.cmd": _cmd_shim(python, src),
+            d / "vulcan.ps1": _ps1_shim(python, src),
         }
-    return {d / "vulcan": _posix_shim(python)}
+    return {d / "vulcan": _posix_shim(python, src)}
 
 
 def _on_path(d: Path) -> bool:
