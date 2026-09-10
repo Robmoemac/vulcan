@@ -491,13 +491,15 @@ def _v13_coverage(ws: Workspace, nodes: list[Node], report: Report) -> None:
     if cfg.require_subchart_per_module:
         expanded = {n.expands for n in nodes if n.expands}
         for node in nodes:
-            if node.kind != "module":
+            # Only real aggregators carry this obligation. A Julia `module Foo`
+            # symbol node is module-kinded but covers nothing.
+            if not node.is_covering:
                 continue
             if node.id not in expanded:
                 report.add(
                     Finding(
                         "V13b", ERROR,
-                        f"module node {node.id!r} is never expanded by a subchart",
+                        f"covering node {node.id!r} is never expanded by a subchart",
                         hint="D3: the master is module-level, so function-level completeness "
                              "is a per-subchart obligation. Build a subchart that expands it.",
                     )

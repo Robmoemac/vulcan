@@ -122,7 +122,15 @@ class Node:
 
     @property
     def is_covering(self) -> bool:
-        return self.kind in COVERING_KINDS
+        """Whether this node stands in for a set of files rather than a symbol.
+
+        Keyed off actually declaring `covers`, not off `kind` alone: a Julia
+        `module Foo` declaration is a symbol like any other and gets a node of
+        its own under D11. Treating every module-kinded node as an aggregator
+        made those symbol nodes inherit the aggregator's obligations — V13b
+        demanded a subchart expanding each of them, which is meaningless.
+        """
+        return self.kind in COVERING_KINDS and bool(self.covers)
 
     def socket(self, socket_id: str) -> Socket | None:
         for s in (*self.inputs, *self.outputs):

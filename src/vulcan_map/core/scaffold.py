@@ -23,7 +23,17 @@ from .model import Node
 from .repo import Mind
 from .workspace import Workspace
 
-_ID_SAFE = str.maketrans({"!": "", "?": "", "-": "_", ".": "_"})
+#: `!` and `?` are meaningful in Julia names — `sort` and `sort!` are different
+#: functions — so they are encoded rather than stripped. Stripping collapsed both
+#: onto one id and silently dropped the mutating variant from the map.
+_ID_SUFFIX = {"!": "_bang", "?": "_q"}
+_ID_SAFE = str.maketrans({"-": "_", ".": "_"})
+
+
+def _id_fragment(name: str) -> str:
+    suffix = "".join(_ID_SUFFIX[c] for c in name if c in _ID_SUFFIX)
+    core = "".join(c for c in name if c not in _ID_SUFFIX)
+    return f"{core.lower().translate(_ID_SAFE)}{suffix}"
 
 DOC_TEMPLATE = """---
 {frontmatter}---
@@ -67,8 +77,8 @@ def node_id_for(prefix: str, file: str, symbol: str) -> str:
     The file stem is included because the same symbol name recurs across files,
     and node ids must be unique map-wide (V2).
     """
-    stem = Path(file).stem.lower().translate(_ID_SAFE)
-    return f"{prefix}.{stem}_{symbol.lower().translate(_ID_SAFE)}"
+    stem = _id_fragment(Path(file).stem)
+    return f"{prefix}.{stem}_{_id_fragment(symbol)}"
 
 
 def _owning_module(node_list: list[Node], rel: str) -> Node | None:
@@ -106,7 +116,7 @@ def plan(ws: Workspace) -> ScaffoldPlan:
         if module is None:
             continue
         chart_id = module.id.split(".", 1)[-1]
-        prefix = chart_id.translate(_ID_SAFE)
+        prefix = _id_fragment(chart_id)
 
         for decl in grounder.declarations(text):
             if decl.symbol in mapped.get(rel, set()):
@@ -141,14 +151,29 @@ def _render_doc(nid: str, symbol: str, kind: str, file: str, line: int, chart: s
         "label": symbol,
         "kind": kind,
         "source": {"file": file, "symbol": symbol, "lines": [line, line]},
-        "inputs": [{
-            "id": "module_api", "type": "Module", "units": "n/a", "required": False,
-            "description": "Re-exported through the owning module's public surface.",
-        }],
-        "outputs": [{
-            "id": "result", "type": "Any", "units": "n/a",
-            "description": "Value produced by this symbol.",
-        }],
+        # callers/callees exist so derived call edges (calltrace) can attach
+        # without a second pass over every doc; module_api carries containment
+        # for symbols that no mapped code calls.
+        "inputs": [
+            {
+                "id": "module_api", "type": "Module", "units": "n/a", "required": False,
+                "description": "Re-exported through the owning module's public surface.",
+            },
+            {
+                "id": "callers", "type": "call", "units": "n/a", "required": False,
+                "description": "Invocations of this symbol observed in mapped callers.",
+            },
+        ],
+        "outputs": [
+            {
+                "id": "result", "type": "Any", "units": "n/a",
+                "description": "Value produced by this symbol.",
+            },
+            {
+                "id": "callees", "type": "call", "units": "n/a",
+                "description": "Calls this symbol makes to other mapped symbols.",
+            },
+        ],
         "tags": [chart],
         "charts": [chart],
         "origin": "agent",

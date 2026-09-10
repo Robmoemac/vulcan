@@ -227,3 +227,18 @@ def test_scaffolded_docs_have_no_prose_so_the_gate_still_fails() -> None:
     body = text.split("---", 2)[2]
     words = [w for w in body.replace("#", " ").split() if w.isalpha()]
     assert len(words) < 40, "a skeleton must not clear the symbol word floor"
+
+
+def test_bang_and_non_bang_symbols_get_distinct_ids() -> None:
+    """Julia's `sort` and `sort!` are different functions.
+
+    Stripping `!` collapsed them onto one id, so the mutating variant was
+    silently dropped from the map and V13e reported it as unmapped forever.
+    """
+    plain = scaffold_mod.node_id_for("m", "src/a.jl", "update")
+    bang = scaffold_mod.node_id_for("m", "src/a.jl", "update!")
+    query = scaffold_mod.node_id_for("m", "src/a.jl", "update?")
+    assert plain != bang != query and plain != query
+    import re
+    for nid in (plain, bang, query):
+        assert re.match(r"^[a-z0-9_]+(\.[a-z0-9_]+)*$", nid), nid
