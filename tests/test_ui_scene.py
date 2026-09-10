@@ -312,3 +312,50 @@ def test_double_click_on_empty_canvas_emits_nothing(session: Session, qapp) -> N
     scene.mouseDoubleClickEvent(event)
 
     assert seen == []
+
+
+# --- workflow charts must render like any other (D12) --------------------------
+
+def test_workflow_chart_renders_in_the_scene(repo: Path, mind: Mind, qapp) -> None:
+    """The renderer had only ever drawn master and sub charts."""
+    import json
+
+    (mind.subcharts_dir / "flow.graph.json").write_text(json.dumps({
+        "schema_version": "1.0.0", "chart_id": "flow", "chart_kind": "workflow",
+        "derives_from": "master", "title": "Flow",
+        "seeds": [{"node": "telemetry.run", "why": "entry point"}],
+        "traversal": {"direction": "downstream", "max_depth": 4},
+        "member_nodes": [],
+    }, indent=2), encoding="utf-8")
+
+    s = Session(repo_root=repo)
+    s.reload()
+    graph = s.graph("flow")
+    assert graph is not None, "workflow chart did not resolve"
+    assert graph.chart_kind == "workflow"
+    assert len(graph.nodes) >= 2
+
+    scene = GraphScene()
+    scene.load(graph, set(s.expansions()))
+    assert set(scene.nodes) == {n.id for n in graph.nodes}
+    # every node it borrowed got a position from layout, so nothing stacks
+    positions = [scene.nodes[n.id].pos() for n in graph.nodes]
+    assert len({(p.x(), p.y()) for p in positions}) == len(positions)
+
+
+def test_workflow_chart_appears_in_the_sidebar_listing(repo: Path, mind: Mind, qapp) -> None:
+    import json
+
+    (mind.subcharts_dir / "flow.graph.json").write_text(json.dumps({
+        "schema_version": "1.0.0", "chart_id": "flow", "chart_kind": "workflow",
+        "derives_from": "master", "title": "Flow",
+        "seeds": [{"node": "telemetry.run"}],
+        "traversal": {"direction": "downstream", "max_depth": 4},
+        "member_nodes": [],
+    }, indent=2), encoding="utf-8")
+
+    s = Session(repo_root=repo)
+    s.reload()
+    listed = {c.chart_id: c.chart_kind for c in s.charts()}
+    assert listed.get("flow") == "workflow"
+    assert listed.get("master") == "master"
