@@ -17,6 +17,7 @@ from typing import Any
 from .. import SCHEMA_VERSION, __version__
 from . import handoff as handoff_mod
 from . import pending as pending_mod
+from . import workflow as workflow_mod
 from .frontmatter import CONNECTIONS_BLOCK, ICD_BLOCK, NodeDoc, render
 from .layout import assign_positions
 from .model import Chart, Edge, Node, ResolvedGraph, Socket
@@ -189,14 +190,30 @@ def run(
 
     lifted = lift_sockets(ws)
 
+    # Step 4c — workflow membership is generated from seeds, never authored.
+    # A view that spans modules must follow the real call graph, so it cannot
+    # be allowed to drift from it (D12).
+    all_nodes_now = ws.all_nodes()
+    for chart in ws.charts:
+        if not chart.is_workflow:
+            continue
+        _changed, problems = workflow_mod.regenerate_membership(
+            chart, ws.charts, all_nodes_now
+        )
+        for problem in problems:
+            ws.issues.append(
+                LoadIssue(path=chart.path or mind.root, message=problem, rule='V18')
+            )
+
     master = ws.master
     # Every node in the map, so a subchart can reference one owned by another
     # chart (a cross-module call is a real edge worth drawing).
     index = {n.id: n for chart in ws.charts for n in chart.all_nodes()}
+    every_edge = [e for c in ws.charts for e in c.all_edges()]
     resolved: dict[str, ResolvedGraph] = {}
     for chart in ws.charts:
         try:
-            resolved[chart.chart_id] = resolve(chart, master, ws.region, index)
+            resolved[chart.chart_id] = resolve(chart, master, ws.region, index, every_edge)
         except Exception as exc:
             ws.issues.append(LoadIssue(path=chart.path or mind.root, message=str(exc), rule="V3"))
 

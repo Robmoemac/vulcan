@@ -263,7 +263,7 @@ def derive_edge_id(from_: Endpoint, to: Endpoint) -> str:
 @dataclass(slots=True)
 class Chart:
     chart_id: str
-    chart_kind: Literal["master", "sub"]
+    chart_kind: Literal["master", "sub", "workflow"]
     title: str
     schema_version: str = "1.0.0"
     region: str | None = None
@@ -279,12 +279,21 @@ class Chart:
     local_edges: list[Edge] = field(default_factory=list)
     pos_overrides: dict[str, tuple[float, float]] = field(default_factory=dict)
 
+    # Workflow-only (PLAN.md D12). Seeds are the semantic input a person or
+    # agent chose; member_nodes is generated from them on every compile.
+    seeds: list[Any] = field(default_factory=list)
+    traversal: dict[str, Any] = field(default_factory=dict)
+
     #: Filesystem path this chart was loaded from; None for resolved charts.
     path: Any = None
 
     @property
     def is_master(self) -> bool:
         return self.chart_kind == "master"
+
+    @property
+    def is_workflow(self) -> bool:
+        return self.chart_kind == "workflow"
 
     def node_by_id(self, node_id: str) -> Node | None:
         for n in self.all_nodes():
@@ -320,6 +329,8 @@ class Chart:
             local_nodes=[Node.from_dict(n) for n in d.get("local_nodes", [])],
             local_edges=[Edge.from_dict(e) for e in d.get("local_edges", [])],
             pos_overrides=overrides,
+            seeds=list(d.get("seeds", [])),
+            traversal=dict(d.get("traversal", {})),
             path=path,
         )
 
@@ -338,6 +349,9 @@ class Chart:
             return _prune(base)
 
         base["derives_from"] = self.derives_from
+        if self.is_workflow:
+            base["seeds"] = list(self.seeds)
+            base["traversal"] = dict(self.traversal)
         base["local_nodes"] = [n.to_dict() for n in self.local_nodes]
         base["local_edges"] = [e.to_dict() for e in self.local_edges]
         if self.pos_overrides:

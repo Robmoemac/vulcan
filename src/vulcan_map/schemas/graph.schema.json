@@ -8,7 +8,7 @@
   "properties": {
     "schema_version": { "type": "string" },
     "chart_id": { "$ref": "#/$defs/chartId" },
-    "chart_kind": { "enum": ["master", "sub"] },
+    "chart_kind": { "enum": ["master", "sub", "workflow"] },
     "title": { "type": "string", "minLength": 1 },
     "region": { "type": "string" },
     "derives_from": { "$ref": "#/$defs/chartId" },
@@ -25,6 +25,26 @@
     "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
     "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } },
     "member_nodes": { "type": "array", "items": { "$ref": "#/$defs/nodeId" } },
+    "seeds": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["node"],
+        "additionalProperties": false,
+        "properties": {
+          "node": { "$ref": "#/$defs/nodeId" },
+          "why": { "type": "string" }
+        }
+      }
+    },
+    "traversal": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "direction": { "enum": ["downstream", "upstream", "both"] },
+        "max_depth": { "type": "integer", "minimum": 1, "maximum": 20 }
+      }
+    },
     "local_nodes": { "type": "array", "items": { "$ref": "#/$defs/node" } },
     "local_edges": { "type": "array", "items": { "$ref": "#/$defs/edge" } },
     "ui": {
@@ -46,6 +66,10 @@
     {
       "if": { "properties": { "chart_kind": { "const": "sub" } }, "required": ["chart_kind"] },
       "then": { "required": ["derives_from", "member_nodes"] }
+    },
+    {
+      "if": { "properties": { "chart_kind": { "const": "workflow" } }, "required": ["chart_kind"] },
+      "then": { "required": ["derives_from", "seeds"] }
     }
   ],
   "$defs": {

@@ -647,6 +647,8 @@ Severity: **E** = error (blocks), **W** = warning (promoted to error under `--st
 | V13 | E¹ | **Coverage:** every in-region source file is *accounted for* — either it is some node's `source.file`, or it matches the `covers` globs of a `module`/`group` node (D3) |
 | V13e | E¹ | **Granularity (D11):** every significant symbol in an enumerable file has its own node |
 | V14 | W | No isolated nodes (degree 0) unless `kind: group` |
+| V18 | E | **Workflows (D12):** a workflow chart is seeded, its seeds are real nodes, and it resolves to something |
+| V19 | E | **One symbol, one node:** no two nodes define the same `(file, symbol)` anywhere in the map |
 | V15 | E | Generated blocks on disk match what the compiler would emit (drift detection) |
 | V16 | W | A prose wikilink to another node with no corresponding edge (A4) |
 | V17 | W | `source.lines` no longer bracket the symbol (map is stale vs. current code) |
@@ -1014,6 +1016,68 @@ Complete = the stated fidelity axis is at the requested depth **across the whole
 subgraph**, not just the first node you touched. If you deepened `animate_sequence` but
 left its three children coarse, you are not done.
 ```
+
+### 9.2b Cross-cutting workflow views (D12)
+
+"Give me a model of the RL workflow" does not map onto any one module. It starts
+somewhere specific and reaches through dynamics, GNC, simulation and analysis. Two
+things must be true of the answer: it follows the *real* call structure rather than a
+keyword guess, and it reuses the nodes already mapped instead of building a shallow
+parallel model of dynamics inside the RL view.
+
+**The split is between judgement and computation.**
+
+| Step | Who | Recorded as |
+|---|---|---|
+| Decide what "the RL workflow" means — its entry points | agent (semantic) | `seeds` in the chart file |
+| Decide what those entry points reach | compiler (mechanical) | generated `member_nodes` |
+
+Seed selection cannot be derived; a traversal has no way to know that "RL" means
+`train_policy!` rather than every function whose doc says "reward". So an agent picks
+the seeds and **writes them into the chart with a `why`**, where a human can audit and
+correct them. Everything after that is deterministic.
+
+```json
+{
+  "chart_kind": "workflow",
+  "chart_id": "rl",
+  "derives_from": "master",
+  "seeds": [
+    {"node": "gnc.rl_train_policy", "why": "training entry point"},
+    {"node": "gnc.rl_rollout",      "why": "rollout loop the trainer drives"}
+  ],
+  "traversal": {"direction": "both", "max_depth": 4},
+  "member_nodes": [ "... generated — do not edit ..." ]
+}
+```
+
+**Membership is generated, never authored.** `vulcan compile` recomputes it from the
+seeds on every run, exactly as it lifts sockets and regenerates the Connections block.
+A workflow view therefore cannot drift from the code: map a new symbol the workflow
+touches, recompile, and the view picks it up. Traversal walks only *behavioural* edges
+(`call`, `dataflow`, `mutates`, `reads`, `feedback`) and deliberately skips module
+containment fan-out — following that would drag in a module's entire contents and turn
+every workflow into "the whole subsystem".
+
+**Reuse is enforced, not encouraged.** Everything reachable that already exists is
+borrowed by reference through the same mechanism that carries cross-module edges
+(§6.3). Only symbols nothing else has mapped may be created as `local_nodes`, and
+**V19 makes two nodes for one `(file, symbol)` a hard error** anywhere in the map — so
+an RL view physically cannot contain its own shallow copy of dynamics.
+
+**`vulcan find`** is the discovery step that makes reuse practical: it searches node
+ids, labels, tags, file paths and doc prose, and reports which of those matched, so an
+agent starts from what exists rather than from the source tree.
+
+Why not the alternatives:
+
+- *Workflow tags applied at mapping time* — requires predicting every future question
+  at the moment of mapping. The owner asks about RL months after dynamics was mapped.
+- *Keyword search alone* — non-deterministic, and a doc mentioning "reward" is not
+  evidence of participation. It is fine for **finding seeds**, which is why `find`
+  exists, but not for deciding membership.
+- *Pure call-graph traversal with no human input* — cannot know where a named workflow
+  begins.
 
 ### 9.3b Handoff between agents (D10)
 
@@ -1387,6 +1451,7 @@ implementation.**
 | D7 | **§9.4** | **Baseline agent adapters: Claude Code, Codex, Devin, generic `AGENTS.md`.** Cursor is deliberately excluded from the baseline; adapters are additive and can be added later. | 2026-09-08 |
 | D8 | **§8.1** | **`vulcan check` never runs in CI and installs no pre-commit hook.** It runs during map creation and edits — inside the skill's own batch loop, at the completion gate, and on every UI mutation. Staleness is reported by V17, not enforced at merge. | 2026-09-08 |
 | D9 | **A8 / §6.3** | **A subchart is a view over the master node set**, not an independent graph: it references master nodes by ID and may add finer nodes via `expands`, but cannot contradict the master. *Default retained — flagged for ratification (see note below).* | 2026-09-08 |
+| D12 | **§9.2b** | **Cross-cutting workflow views are a first-class chart kind.** A `workflow` chart records agent-chosen *seeds*; the compiler generates `member_nodes` from them by traversing the traced call graph. Existing nodes are borrowed, never duplicated (V19). Enforced by V18. | 2026-09-10 |
 | D11 | **A2 / §8.2** | **"Function-level" means a node per significant symbol** — every function, type, macro, module and non-dunder method — not one node standing in for a file. Enforced by V13e against deterministic per-language enumeration. Supersedes the original reading of D3; it is not an optional deeper pass. | 2026-09-10 |
 | D10 | **§9.3b** | **Completion may never rest on an agent's self-report, from any adapter.** The map must be resumable by any agent, of any vendor, with any context window, without trusting a predecessor. Enforced by a tool-written `HANDOFF.md`, `vulcan status`, and a mandatory `vulcan check --strict --proof` block in every completion report. | 2026-09-09 |
 

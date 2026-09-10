@@ -107,6 +107,8 @@ def validate(ws: Workspace, *, expected_blocks: dict[Path, dict[str, str]] | Non
         _v15_drift(ws, expected_blocks, report)
     _v16_wikilinks(ws, by_id, report)
     _v17_stale_lines(ws, nodes, report)
+    _v18_workflows(ws, by_id, report)
+    _v19_no_duplicate_symbols(ws, report)
 
     return report
 
@@ -726,3 +728,87 @@ def _v17_stale_lines(ws: Workspace, nodes: list[Node], report: Report) -> None:
                     hint="The map has drifted from the code. Re-run the augment skill for this area.",
                 )
             )
+
+
+# ---------------------------------------------------------------- V18
+
+def _v18_workflows(ws: Workspace, by_id: dict[str, Node], report: Report) -> None:
+    """Workflow charts must be seeded, and their seeds must be real nodes (D12).
+
+    Membership is regenerated from seeds on every compile, so it cannot drift.
+    What *can* go wrong is the input: a workflow with no seeds describes nothing,
+    and a seed naming a node that does not exist silently shrinks the view.
+    """
+    for chart in ws.charts:
+        if not chart.is_workflow:
+            continue
+        where = _rel(ws, chart.path)
+
+        if not chart.seeds:
+            report.add(
+                Finding(
+                    "V18", ERROR,
+                    f"workflow {chart.chart_id!r} declares no seeds",
+                    path=where,
+                    hint="A workflow view is defined by its entry points. Add "
+                         "`seeds`, each naming a node and why it belongs.",
+                )
+            )
+            continue
+
+        for raw in chart.seeds:
+            nid = raw["node"] if isinstance(raw, dict) else raw
+            if nid not in by_id:
+                report.add(
+                    Finding(
+                        "V18", ERROR,
+                        f"workflow {chart.chart_id!r} seeds unknown node {nid!r}",
+                        path=where,
+                        hint="Seeds must name nodes that already exist. Map the "
+                             "symbol first, then seed the workflow with it.",
+                    )
+                )
+
+        if not chart.member_nodes and not chart.local_nodes:
+            report.add(
+                Finding(
+                    "V18", ERROR,
+                    f"workflow {chart.chart_id!r} resolves to no nodes",
+                    path=where,
+                    hint="The seeds reach nothing. Check the traversal direction "
+                         "and depth, or whether the call edges have been traced.",
+                )
+            )
+
+
+# ---------------------------------------------------------------- V19
+
+def _v19_no_duplicate_symbols(ws: Workspace, report: Report) -> None:
+    """One symbol, one node — anywhere in the map (D12).
+
+    A workflow view must *borrow* the dynamics nodes it spans, not build a
+    shallow second model of dynamics inside itself. Two nodes describing the same
+    (file, symbol) means the map disagrees with itself about what that symbol is.
+    """
+    owner: dict[tuple[str, str], tuple[str, str]] = {}
+    for chart in ws.charts:
+        for node in chart.all_nodes():
+            src = node.source
+            if not (src.file and src.symbol) or node.is_covering:
+                continue
+            key = (src.file, src.symbol)
+            prior = owner.get(key)
+            if prior is not None:
+                report.add(
+                    Finding(
+                        "V19", ERROR,
+                        f"{src.file}:{src.symbol} is defined by two nodes — "
+                        f"{prior[0]!r} in {prior[1]!r} and {node.id!r} in "
+                        f"{chart.chart_id!r}",
+                        path=_rel(ws, chart.path),
+                        hint="Reference the existing node via member_nodes instead "
+                             "of creating a second one for the same symbol.",
+                    )
+                )
+            else:
+                owner[key] = (node.id, chart.chart_id)

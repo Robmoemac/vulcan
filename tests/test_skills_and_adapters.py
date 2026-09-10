@@ -144,3 +144,21 @@ def test_agents_md_header_states_granularity(tmp_path: Path) -> None:
     text = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
     head = text[: text.find("## Skill:")]
     assert "V13e" in head and "scaffold" in head
+
+
+def test_subchart_skill_covers_cross_cutting_workflows() -> None:
+    """D12 must be in the skill an agent reads, not just in PLAN.md."""
+    body = load_skill("subchart").body
+    assert "chart_kind" in body and "workflow" in body
+    assert "vulcan find" in body
+    assert "vulcan workflow add" in body
+    assert "seeds" in body.lower()
+    # the two things that make it reuse rather than remodel
+    assert "V19" in body
+    assert "borrow" in body.lower()
+
+
+def test_subchart_skill_distinguishes_the_two_shapes() -> None:
+    body = load_skill("subchart").body
+    assert "Module detail" in body
+    assert "Workflow view" in body

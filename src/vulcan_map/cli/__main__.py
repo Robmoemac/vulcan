@@ -63,6 +63,22 @@ def build_parser() -> argparse.ArgumentParser:
     _add_repo_args(p_scaffold)
     p_scaffold.add_argument("--dry-run", action="store_true", help="Show what would be created")
 
+    p_find = sub.add_parser("find", help="Search already-mapped nodes by name, tag, path or prose")
+    _add_repo_args(p_find)
+    p_find.add_argument("query", help="Substring to look for")
+    p_find.add_argument("--limit", type=int, default=40)
+
+    p_flow = sub.add_parser("workflow", help="Cross-cutting workflow views (D12)")
+    _add_repo_args(p_flow)
+    p_flow.add_argument("action", choices=["list", "add"])
+    p_flow.add_argument("name", nargs="?", help="Workflow chart id")
+    p_flow.add_argument("--seed", action="append", default=[], help="Entry-point node id (repeatable)")
+    p_flow.add_argument("--title", default=None)
+    p_flow.add_argument("--why", default=None, help="Why these seeds define the workflow")
+    p_flow.add_argument("--direction", choices=["downstream", "upstream", "both"], default="downstream")
+    p_flow.add_argument("--depth", type=int, default=4)
+    p_flow.add_argument("--force", action="store_true")
+
     p_wl = sub.add_parser("worklist", help="Durable progress ledger")
     _add_repo_args(p_wl)
     p_wl.add_argument("--build", action="store_true", help="Rebuild the ledger from disk")
@@ -111,7 +127,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from . import (
         cmd_check, cmd_compile, cmd_doctor, cmd_init, cmd_install_shim,
-        cmd_region, cmd_scaffold, cmd_status, cmd_ui, cmd_worklist,
+        cmd_region, cmd_scaffold, cmd_status, cmd_ui, cmd_workflow, cmd_worklist,
     )
 
     handlers = {
@@ -120,6 +136,8 @@ def main(argv: list[str] | None = None) -> int:
         "check": cmd_check.run,
         "status": cmd_status.run,
         "scaffold": cmd_scaffold.run,
+        "find": cmd_workflow.run_find,
+        "workflow": cmd_workflow.run_workflow,
         "worklist": cmd_worklist.run,
         "region": cmd_region.run,
         "ui": cmd_ui.run,

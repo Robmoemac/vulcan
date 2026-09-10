@@ -21,6 +21,7 @@ def resolve(
     master: Chart | None,
     region: Region | None = None,
     index: dict[str, Node] | None = None,
+    all_edges: list[Edge] | None = None,
 ) -> ResolvedGraph:
     """Flatten a chart for rendering.
 
@@ -38,7 +39,7 @@ def resolve(
                 f"Subchart {chart.chart_id!r} derives from {chart.derives_from!r}, "
                 "which was not loaded."
             )
-        nodes, edges = _resolve_sub(chart, master, index)
+        nodes, edges = _resolve_sub(chart, master, index, all_edges)
 
     if region is not None:
         for n in nodes:
@@ -57,7 +58,10 @@ def resolve(
 
 
 def _resolve_sub(
-    chart: Chart, master: Chart | None, index: dict[str, Node] | None
+    chart: Chart,
+    master: Chart | None,
+    index: dict[str, Node] | None,
+    all_edges: list[Edge] | None = None,
 ) -> tuple[list[Node], list[Edge]]:
     by_id: dict[str, Node] = dict(index or {})
     if master is not None:
@@ -92,6 +96,13 @@ def _resolve_sub(
         if master is not None
         else []
     )
+    if chart.is_workflow and all_edges is not None:
+        # A workflow borrows the real edges between the nodes it spans; they
+        # live in whichever module chart owns them, not in the master.
+        inherited = [
+            e for e in all_edges
+            if e.from_.node in present and e.to.node in present
+        ]
     edges = inherited + list(chart.local_edges)
 
     seen: set[str] = set()

@@ -88,10 +88,23 @@ def test_position_override_does_not_leak_into_master(repo: Path, mind: Mind) -> 
 
 
 def test_local_node_expands_a_master_node(repo: Path, mind: Mind) -> None:
+    # A finer node must describe a *different* symbol; reusing the parent's would
+    # be a duplicate definition of one symbol, which V19 rejects.
+    (repo / "src" / "propagator.py").write_text(
+        "def propagate_orbit(state0, tspan):\n"
+        "    traj = [state0]\n"
+        "    for _ in range(int(tspan[1] - tspan[0])):\n"
+        "        traj.append(inner_step(traj[-1]))\n"
+        "    return traj\n"
+        "\n\n"
+        "def inner_step(prev):\n"
+        "    return prev\n",
+        encoding="utf-8",
+    )
     doc = mind.nodes_dir / "propagator" / "inner_step.md"
     doc.write_text(
-        _doc("propagate_orbit", "propagator.inner_step", "src/propagator.py",
-             "propagate_orbit", [_sock("prev")], [_sock("next_state")]),
+        _doc("inner_step", "propagator.inner_step", "src/propagator.py",
+             "inner_step", [_sock("prev")], [_sock("next_state")]),
         encoding="utf-8",
     )
     write_subchart(mind, {
@@ -100,7 +113,7 @@ def test_local_node_expands_a_master_node(repo: Path, mind: Mind) -> None:
         "local_nodes": [{
             "id": "propagator.inner_step", "label": "inner_step",
             "kind": "function", "doc": "nodes/propagator/inner_step.md",
-            "source": {"file": "src/propagator.py", "symbol": "propagate_orbit"},
+            "source": {"file": "src/propagator.py", "symbol": "inner_step"},
             "expands": "propagator.propagate_orbit",
             "origin": "agent",
         }],
@@ -124,10 +137,18 @@ def test_subchart_may_reference_a_node_owned_by_another_subchart(
     repo: Path, mind: Mind
 ) -> None:
     """Cross-module calls are real edges; membership is not limited to master nodes."""
+    (repo / "src" / "propagator.py").write_text(
+        "def propagate_orbit(state0, tspan):\n"
+        "    return [state0]\n"
+        "\n\n"
+        "def inner_step(prev):\n"
+        "    return prev\n",
+        encoding="utf-8",
+    )
     doc = mind.nodes_dir / "propagator" / "helper.md"
     doc.write_text(
-        _doc("propagate_orbit", "propagator.helper", "src/propagator.py",
-             "propagate_orbit", [_sock("a")], [_sock("b")]),
+        _doc("inner_step", "propagator.helper", "src/propagator.py",
+             "inner_step", [_sock("a")], [_sock("b")]),
         encoding="utf-8",
     )
     write_subchart(mind, {
@@ -136,7 +157,7 @@ def test_subchart_may_reference_a_node_owned_by_another_subchart(
         "local_nodes": [{
             "id": "propagator.helper", "label": "helper", "kind": "function",
             "doc": "nodes/propagator/helper.md",
-            "source": {"file": "src/propagator.py", "symbol": "propagate_orbit"},
+            "source": {"file": "src/propagator.py", "symbol": "inner_step"},
             "expands": "propagator.propagate_orbit", "origin": "agent",
         }],
     })
