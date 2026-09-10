@@ -114,16 +114,28 @@ non-feedback edges*, which preserves layered layout while keeping the map truthf
 Rejected: silently dropping back-edges (produces a map that lies), and allowing general
 cycles (breaks layered layout and the mental model the spec asks for).
 
-### A2 — What is a node? ✅ D3
+### A2 — What is a node? ✅ D3, revised by D11
 
 Function, file, module, and subsystem are all plausible granularities.
 
-**Chosen:** **function-level by default**, with `kind ∈ {function, file, module, struct,
-external, group}` so coarser nodes are expressible, and a per-region
-`granularity` setting. Rationale: the spec demands explicit real function names, which
-implies function-level; but a 3,000-function repo produces an unreadable master chart,
-so the master chart defaults to `module`/`file` granularity and subcharts drill to
-`function`. See A9.
+**Chosen:** **per-symbol by default**, with `kind ∈ {function, file, module, struct,
+external, group}` so coarser nodes are expressible, and a per-region `granularity`
+setting. The master chart stays at `module`/`file` granularity because a 2,000-symbol
+master is unreadable; subcharts carry the detail. See A9.
+
+**What "function-level subchart" means (D11, superseding the original reading).**
+Every *significant symbol* in a file gets its own node — every function, type, macro,
+module, and non-dunder method. It does **not** mean one representative node standing in
+for a file.
+
+The first real map was built on the looser reading: one node per file, 225 nodes over
+205 files. It passed every gate at the time and was unusable in practice. Nothing could
+be clicked into, because a file-level node has no interior; and the call tracer found
+only 84 edges, because a call from one function to another inside a mapped file had no
+individual nodes to connect. The granularity *was* the product.
+
+Deduplication rule: multiple methods of one generic function are **one** symbol.
+`calcForceTorque` with eight methods is a single concept on the map, not eight nodes.
 
 ### A3 — Canonical source of truth: JSON or markdown?
 
@@ -633,6 +645,7 @@ Severity: **E** = error (blocks), **W** = warning (promoted to error under `--st
 | V11 | E | No node's `source.file` falls outside the active region's globs (§5.3) |
 | V12 | E | **Anti-vagueness:** no banned phrase in doc prose; body ≥ `min_doc_words` |
 | V13 | E¹ | **Coverage:** every in-region source file is *accounted for* — either it is some node's `source.file`, or it matches the `covers` globs of a `module`/`group` node (D3) |
+| V13e | E¹ | **Granularity (D11):** every significant symbol in an enumerable file has its own node |
 | V14 | W | No isolated nodes (degree 0) unless `kind: group` |
 | V15 | E | Generated blocks on disk match what the compiler would emit (drift detection) |
 | V16 | W | A prose wikilink to another node with no corresponding edge (A4) |
@@ -658,6 +671,39 @@ obligations below. Two additional constraints close the loophole:
 
 Function-level completeness is therefore a per-subchart obligation, exactly as D3 states,
 and "the master is done" never means "the map is done."
+
+### 8.2 V13e — what counts as a symbol, and why it is enforced
+
+The coverage rules stack, each closing the loophole the previous one leaves:
+
+| Rule | Guarantees | Loophole it leaves |
+|---|---|---|
+| V13 | every file is *accounted for* | one `covers` glob can claim a whole tree |
+| V13a/V13c | claims are bounded and unambiguous | a file can be claimed without being described |
+| V13d | every file is *described* by some node | one node can stand in for forty functions |
+| **V13e** | every *symbol* has its own node | — |
+
+**Significant symbol** is defined per language by a grounder that can enumerate
+deterministically. Guessing is not permitted: a language whose grounder sets
+`enumerates = False` is skipped entirely, because a rule that fires on a heuristic
+guess is a rule nobody can act on.
+
+- **Python** — the stdlib `ast`: top-level functions and classes, plus their
+  non-dunder methods. Dunders are a class's own machinery, not navigable units.
+- **Julia** — regex over declaration forms (`function`, short-form `f(x) = …`,
+  `struct`, `mutable struct`, `abstract type`, `primitive type`, `macro`, `module`),
+  deduplicated by name. `const` is excluded: data bindings are not units of behaviour.
+
+**Doc floors scale with what a node claims (§8.3).** The 120-word floor was calibrated
+for a module doc. Applying it unchanged to a twelve-line accessor forces padding, which
+is the very vagueness V12 exists to catch. Covering nodes keep `min_doc_words` (120);
+symbol nodes use `min_doc_words_symbol` (40). Banned-phrase linting applies to both.
+
+**`vulcan scaffold` exists because of this rule.** A real map now has thousands of
+nodes whose *structure* — id, label, kind, source file, declaration line, chart
+membership — is fully derivable from source. Scaffolding generates that skeleton and
+deliberately leaves Purpose and Design empty, so V12 keeps failing until someone reads
+the code. A scaffold is not a map, and the gate says so.
 
 ### 8.1 Where validation runs — and where it does not
 
@@ -1334,13 +1380,14 @@ implementation.**
 |---|---|---|---|
 | D1 | **A6** | **Strict conda-only; no pip fallback.** All dependencies resolve from conda channels. | 2026-09-08 |
 | D2 | **A6 / §11.1** | **UI stack: PySide6 + a custom `QGraphicsView`/`QGraphicsScene` node editor.** NodeGraphQt ruled out (not conda-installable); vendoring considered and rejected. | 2026-09-08 |
-| D3 | **A2 / A9 / §5.1** | **Granularity: module-level master chart + function-level subcharts.** No exhaustive function-level master. Coverage (V13) is therefore satisfied at module level for the master; function-level completeness is a per-subchart obligation. | 2026-09-08 |
+| D3 | **A2 / A9 / §5.1** | **Granularity: module-level master chart + function-level subcharts.** No exhaustive function-level master. Coverage (V13) is satisfied at module level for the master; detail is a per-subchart obligation. *Superseded in part by D11, which defines what "function-level" means.* | 2026-09-08 |
 | D4 | **A5 / §4** | **`vulcan_mind/` is committed to the target repo**, with `vulcan_mind/_build/` gitignored. The map is reviewable, diffable documentation, not a regenerable cache. | 2026-09-08 |
 | D5 | **A1 / §6.2 / V5** | **Recursion and mutual recursion are mapped as `kind: "feedback"` edges**, exempt from the acyclicity check and rendered as dashed noodles. Cyclic call structures are never silently dropped. | 2026-09-08 |
 | D6 | **A12 / §6.2** | **Human edits are sticky.** Agents must preserve `ui.pos` and may not delete `origin: "human"` nodes or edges without an explicit `--allow-removal` flag. | 2026-09-08 |
 | D7 | **§9.4** | **Baseline agent adapters: Claude Code, Codex, Devin, generic `AGENTS.md`.** Cursor is deliberately excluded from the baseline; adapters are additive and can be added later. | 2026-09-08 |
 | D8 | **§8.1** | **`vulcan check` never runs in CI and installs no pre-commit hook.** It runs during map creation and edits — inside the skill's own batch loop, at the completion gate, and on every UI mutation. Staleness is reported by V17, not enforced at merge. | 2026-09-08 |
 | D9 | **A8 / §6.3** | **A subchart is a view over the master node set**, not an independent graph: it references master nodes by ID and may add finer nodes via `expands`, but cannot contradict the master. *Default retained — flagged for ratification (see note below).* | 2026-09-08 |
+| D11 | **A2 / §8.2** | **"Function-level" means a node per significant symbol** — every function, type, macro, module and non-dunder method — not one node standing in for a file. Enforced by V13e against deterministic per-language enumeration. Supersedes the original reading of D3; it is not an optional deeper pass. | 2026-09-10 |
 | D10 | **§9.3b** | **Completion may never rest on an agent's self-report, from any adapter.** The map must be resumable by any agent, of any vendor, with any context window, without trusting a predecessor. Enforced by a tool-written `HANDOFF.md`, `vulcan status`, and a mandatory `vulcan check --strict --proof` block in every completion report. | 2026-09-09 |
 
 These are settled inputs to the build order in §13, not recommendations. Each is carried

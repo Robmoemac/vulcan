@@ -100,7 +100,7 @@ def validate(ws: Workspace, *, expected_blocks: dict[Path, dict[str, str]] | Non
     _v8_v9_docs(ws, nodes, report)
     _v10_socket_parity(ws, nodes, report)
     _v11_region(ws, nodes, report)
-    _v12_prose(ws, report)
+    _v12_prose(ws, nodes, report)
     _v13_coverage(ws, nodes, report)
     _v14_isolated(ws, by_id, report)
     if expected_blocks is not None:
@@ -371,8 +371,17 @@ def _v11_region(ws: Workspace, nodes: list[Node], report: Report) -> None:
 
 # ---------------------------------------------------------------- V12
 
-def _v12_prose(ws: Workspace, report: Report) -> None:
+def _v12_prose(ws: Workspace, nodes: list[Node], report: Report) -> None:
+    """Anti-vagueness lint, with a word floor proportionate to what a node claims.
+
+    The 120-word floor was calibrated for a module or subsystem doc. Applying it
+    unchanged to every leaf function under D11 would force padding on a twelve
+    line accessor — which is precisely the vagueness this rule exists to catch.
+    Covering nodes keep the full floor; symbol-level nodes get a smaller one.
+    """
     banned = [p for p in ws.config.banned_phrases if p]
+    kinds = {n.id: n for n in nodes}
+
     for doc in ws.docs:
         prose = doc.prose()
         lowered = prose.lower()
@@ -386,12 +395,19 @@ def _v12_prose(ws: Workspace, report: Report) -> None:
                         hint="Name the real function, file, or value instead of describing it vaguely.",
                     )
                 )
+
+        node = kinds.get(doc.id or "")
+        covering = node.is_covering if node is not None else True
+        floor = ws.config.min_doc_words if covering else ws.config.min_doc_words_symbol
+
         words = doc.word_count()
-        if words < ws.config.min_doc_words:
+        if words < floor:
+            scope = "covering" if covering else "symbol"
             report.add(
                 Finding(
                     "V12", ERROR,
-                    f"node doc has {words} words of prose; minimum is {ws.config.min_doc_words}",
+                    f"node doc has {words} words of prose; minimum for a {scope} "
+                    f"node is {floor}",
                     path=_rel(ws, doc.path),
                     hint="Generated tables do not count toward the floor — write the real design/ICD content.",
                 )
@@ -484,6 +500,60 @@ def _v13_coverage(ws: Workspace, nodes: list[Node], report: Report) -> None:
                              "is a per-subchart obligation. Build a subchart that expands it.",
                     )
                 )
+
+    # V13e — per-symbol granularity (D11).
+    #
+    # V13d forces every file to be described by *something*. That still permits
+    # one node standing in for a file with forty functions in it, which is what
+    # shipped the first time and made the map unusable: you could not click into
+    # anything, and call edges had nothing to resolve against. Every significant
+    # symbol must now be a node in its own right.
+    #
+    # Only languages whose grounder can enumerate declarations deterministically
+    # are checked — guessing at symbols would make this rule unfalsifiable.
+    if cfg.require_node_per_symbol:
+        mapped_by_file: dict[str, set[str]] = {}
+        for n in nodes:
+            if n.source.file and n.source.symbol and not n.is_covering:
+                mapped_by_file.setdefault(n.source.file, set()).add(n.source.symbol)
+
+        gaps: list[tuple[str, list[str]]] = []
+        for rel in in_scope:
+            abs_path = ws.repo_root / rel
+            if not abs_path.is_file():
+                continue
+            grounder = grounder_for(abs_path, ws.config.symbol_search)
+            if not grounder.enumerates:
+                continue
+            try:
+                text = abs_path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                continue
+            significant = {d.symbol for d in grounder.declarations(text)}
+            if not significant:
+                continue
+            missing = sorted(significant - mapped_by_file.get(rel, set()))
+            if missing:
+                gaps.append((rel, missing))
+
+        if gaps:
+            total = sum(len(m) for _f, m in gaps)
+            shown = "\n        ".join(
+                f"{f} — {len(m)} unmapped: {', '.join(m[:6])}"
+                + (" …" if len(m) > 6 else "")
+                for f, m in gaps[:15]
+            )
+            more = f"\n        ... and {len(gaps) - 15} more file(s)" if len(gaps) > 15 else ""
+            report.add(
+                Finding(
+                    "V13e", ERROR,
+                    f"{total} significant symbol(s) across {len(gaps)} file(s) have no "
+                    f"node of their own:\n        {shown}{more}",
+                    hint="D11: a node per significant symbol, not one node standing in "
+                         "for a whole file. Run `vulcan scaffold` to generate the missing "
+                         "nodes and docs, then write their prose.",
+                )
+            )
 
     # V13d — depth, not just accounting.
     #

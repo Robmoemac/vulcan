@@ -38,7 +38,8 @@
       "additionalProperties": false,
       "properties": {
         "banned_phrases": { "type": "array", "items": { "type": "string" } },
-        "min_doc_words": { "type": "integer", "minimum": 0 }
+        "min_doc_words": { "type": "integer", "minimum": 0 },
+        "min_doc_words_symbol": { "type": "integer", "minimum": 0 }
       }
     },
     "coverage": {
@@ -47,7 +48,8 @@
       "properties": {
         "require_every_in_scope_file_mapped": { "type": "boolean" },
         "require_subchart_per_module": { "type": "boolean" },
-        "require_function_node_per_file": { "type": "boolean" }
+        "require_function_node_per_file": { "type": "boolean" },
+        "require_node_per_symbol": { "type": "boolean" }
       }
     }
   }

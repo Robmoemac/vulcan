@@ -46,12 +46,26 @@ rather than silently truncated.
 
 This enumerates every in-scope file. It is your ledger. It outlives your context.
 
+### Step 2b — Scaffold the symbol nodes
+
+    vulcan scaffold
+
+This creates a node and a doc skeleton for every significant symbol the tool can
+enumerate — potentially thousands. Structure comes from the source; the prose is
+left empty on purpose, so the gate keeps failing until you write it.
+
+Do this before writing any prose. Hand-typing node entries for a real codebase is
+slow and gets ids, line numbers and chart membership wrong.
+
 ### Step 3 — Map, batch by batch
 
 Follow the batch loop in the completion contract. For each file:
 
   - Read the whole file.
-  - Identify every public symbol and every significant internal one.
+  - Every significant symbol in it already has a scaffolded node (V13e). Your
+    job is the prose for each: what it does, its real inputs and outputs, its
+    assumptions and limits. One node per symbol — never one standing in for
+    the file.
   - Create a node doc from `vulcan_mind/templates/node.md`, filling **every**
     section. Sections are not optional; `min_doc_words` is enforced on prose
     only, so generated tables cannot pad a stub past the floor.
@@ -87,6 +101,8 @@ Common failures and what they mean:
 | V12 | Vague prose, or too few words | Write the real content |
 | V13 | Files are unaccounted for | You are not finished — keep mapping |
 | V13b | A module has no function-level subchart | Run the `vulcan-subchart` skill for it |
+| V13d | A file is claimed but not described | Give it a real node |
+| V13e | Symbols in a file have no node of their own | `vulcan scaffold`, then write their prose |
 
 ### Step 5 — Report
 

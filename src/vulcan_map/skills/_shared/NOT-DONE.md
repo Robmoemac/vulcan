@@ -119,6 +119,40 @@ Work in batches of 5-10 source files:
   6. Repeat until `vulcan status` reports 0 outstanding.
   7. `vulcan check --strict --proof` → must say PASS, exit 0.
 
+### Granularity: one node per symbol, never one node per file
+
+**Every significant symbol gets its own node.** Every function, type, struct,
+macro, module, and non-dunder method in every in-scope file. Not one
+representative symbol standing in for the file it lives in.
+
+This is rule V13e and it is machine-checked: the tool enumerates each file's
+symbols itself (Python via the stdlib AST, Julia via declaration patterns) and
+fails until each one has a node.
+
+  REQUIRED:  a file with 12 functions produces 12 nodes
+  FORBIDDEN: a file with 12 functions produces 1 node "representing" it
+
+The one exception is deduplication: several methods of a single generic function
+are one symbol. `calcForceTorque` with eight methods is one node, not eight.
+
+**Why this is not negotiable.** The first real map built with this tool used one
+node per file — 225 nodes over 205 files. Every gate passed and the result was
+unusable. You could not click into anything, because a file-level node has no
+interior. And the call tracer found almost no edges, because a call from one
+function to another inside a mapped file had no individual nodes to connect. The
+map's granularity *is* the product.
+
+**Use `vulcan scaffold`.** It generates every missing node and a doc skeleton for
+it — id, label, kind, source file, declaration line, chart membership — straight
+from the source. That is mechanical work you should not be typing by hand. It
+deliberately leaves Purpose and Design empty, so the gate keeps failing until you
+read the code and write them. A scaffold is not a map.
+
+Doc length is expected to scale with what a node covers: a module doc needs real
+depth (120 words), a leaf function needs a tight, accurate 40. Do not pad a small
+function's doc to look like a big one — padding is exactly what the banned-phrase
+lint is looking for.
+
 ### Grounding is checked mechanically — you cannot talk your way past it
 
 Every node names a real file and a real symbol. `vulcan check` **opens the file

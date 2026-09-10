@@ -128,3 +128,19 @@ def test_claude_and_devin_targets_carry_it_too(tmp_path: Path) -> None:
     for text in (claude, devin):
         assert "vulcan check --strict --proof" in text
         assert "HANDOFF.md" in text
+
+
+@pytest.mark.parametrize("key", sorted(SKILLS))
+def test_every_skill_states_per_symbol_granularity(key: str) -> None:
+    """D11 must reach an agent mapping a fresh repo, not need a human to catch it."""
+    body = load_skill(key).body
+    assert "one node per symbol" in body.lower()
+    assert "V13e" in body
+    assert "vulcan scaffold" in body
+
+
+def test_agents_md_header_states_granularity(tmp_path: Path) -> None:
+    adapters_mod.ADAPTERS["agents-md"].install(tmp_path, list(all_skills()))
+    text = (tmp_path / "AGENTS.md").read_text(encoding="utf-8")
+    head = text[: text.find("## Skill:")]
+    assert "V13e" in head and "scaffold" in head

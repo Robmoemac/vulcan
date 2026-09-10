@@ -57,6 +57,12 @@ def build_parser() -> argparse.ArgumentParser:
     _add_repo_args(p_status)
     p_status.add_argument("--json", action="store_true", help="Machine-readable output")
 
+    p_scaffold = sub.add_parser(
+        "scaffold", help="Generate nodes and doc skeletons for unmapped symbols (D11)"
+    )
+    _add_repo_args(p_scaffold)
+    p_scaffold.add_argument("--dry-run", action="store_true", help="Show what would be created")
+
     p_wl = sub.add_parser("worklist", help="Durable progress ledger")
     _add_repo_args(p_wl)
     p_wl.add_argument("--build", action="store_true", help="Rebuild the ledger from disk")
@@ -105,7 +111,7 @@ def main(argv: list[str] | None = None) -> int:
 
     from . import (
         cmd_check, cmd_compile, cmd_doctor, cmd_init, cmd_install_shim,
-        cmd_region, cmd_status, cmd_ui, cmd_worklist,
+        cmd_region, cmd_scaffold, cmd_status, cmd_ui, cmd_worklist,
     )
 
     handlers = {
@@ -113,6 +119,7 @@ def main(argv: list[str] | None = None) -> int:
         "compile": cmd_compile.run,
         "check": cmd_check.run,
         "status": cmd_status.run,
+        "scaffold": cmd_scaffold.run,
         "worklist": cmd_worklist.run,
         "region": cmd_region.run,
         "ui": cmd_ui.run,

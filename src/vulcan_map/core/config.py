@@ -80,9 +80,11 @@ class Config:
     symbol_search: str = "auto"
     banned_phrases: tuple[str, ...] = DEFAULT_BANNED_PHRASES
     min_doc_words: int = 120
+    min_doc_words_symbol: int = 40
     require_every_in_scope_file_mapped: bool = True
     require_subchart_per_module: bool = True
     require_function_node_per_file: bool = True
+    require_node_per_symbol: bool = True
     path: Path | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -146,6 +148,7 @@ def load_config(path: Path) -> Config:
         symbol_search=grounding.get("symbol_search", "auto"),
         banned_phrases=tuple(lint.get("banned_phrases", DEFAULT_BANNED_PHRASES)),
         min_doc_words=lint.get("min_doc_words", 120),
+        min_doc_words_symbol=lint.get("min_doc_words_symbol", 40),
         require_every_in_scope_file_mapped=coverage.get(
             "require_every_in_scope_file_mapped", True
         ),
@@ -153,6 +156,7 @@ def load_config(path: Path) -> Config:
         require_function_node_per_file=coverage.get(
             "require_function_node_per_file", True
         ),
+        require_node_per_symbol=coverage.get("require_node_per_symbol", True),
         path=path,
         raw=raw,
     )
