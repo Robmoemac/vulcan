@@ -54,3 +54,40 @@ def test_first_line_declaration() -> None:
 def test_falls_back_to_occurrence_when_not_declared() -> None:
     text = "module M\nusing Other: helper\nend\n"
     assert G.symbol_line(text, "helper") == 2
+
+
+def test_macro_decorated_struct_is_a_declaration() -> None:
+    """`@kwdef mutable struct T` is an ordinary Julia declaration.
+
+    Missing it made the search fall through to a text scan that landed on the
+    `export` line — reported from a real repo by a mapping agent.
+    """
+    text = (
+        "module Components\n"
+        "\n"
+        "using Base\n"
+        "\n"
+        "export Facet, Thruster, Magnet\n"
+        "\n"
+        "@kwdef mutable struct Thruster\n"
+        "    name::String\n"
+        "end\n"
+        "end\n"
+    )
+    assert G.symbol_line(text, "Thruster") == 7
+
+
+def test_qualified_macro_decoration() -> None:
+    text = "export Widget\n\nBase.@kwdef struct Widget\n    n::Int\nend\n"
+    assert G.symbol_line(text, "Widget") == 3
+
+
+def test_export_line_is_not_reported_as_a_definition() -> None:
+    """With no declaration anywhere, prefer a use site over an export list."""
+    text = "export Alpha\n\nconfigure(Alpha)\n"
+    assert G.symbol_line(text, "Alpha") == 3
+
+
+def test_export_only_symbol_still_reports_something() -> None:
+    text = "module M\nexport Alpha\nend\n"
+    assert G.symbol_line(text, "Alpha") == 2
