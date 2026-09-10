@@ -200,14 +200,28 @@ def run(
         except Exception as exc:
             ws.issues.append(LoadIssue(path=chart.path or mind.root, message=str(exc), rule="V3"))
 
+    # Lay out the resolved graph — every node the chart shows, including members
+    # borrowed from another chart, which have no meaningful position of their own
+    # here. Owned nodes keep theirs on the node; borrowed ones are persisted as
+    # pos_overrides so they are stable without touching the owning chart.
     assigned = 0
     for chart in ws.charts:
         graph = resolved.get(chart.chart_id)
         if graph is None:
             continue
-        owned = list(chart.nodes) if chart.is_master else list(chart.local_nodes)
-        if owned:
-            assigned += assign_positions(owned, graph.edges)
+        for node in graph.nodes:
+            if node.pos is None and not chart.is_master:
+                node.pos = chart.pos_overrides.get(node.id)
+        assigned += assign_positions(graph.nodes, graph.edges)
+
+        owned = {n.id: n for n in (chart.nodes if chart.is_master else chart.local_nodes)}
+        for node in graph.nodes:
+            if node.pos is None:
+                continue
+            if node.id in owned:
+                owned[node.id].pos = node.pos
+            elif not chart.is_master:
+                chart.pos_overrides[node.id] = node.pos
 
     all_edges = [e for c in ws.charts for e in c.all_edges()]
     blocks = expected_blocks(ws, all_edges)

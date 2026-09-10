@@ -71,8 +71,11 @@ def _resolve_sub(
         if node is None:
             missing.append(nid)
             continue
-        # Copy so a subchart's position override cannot leak into its owner.
-        members.append(replace(node))
+        # Copy so a subchart's position override cannot leak into its owner, and
+        # drop the inherited position: coordinates from the chart that owns this
+        # node mean nothing in this one's layout, and keeping them drops the node
+        # on top of whatever the layout engine puts there.
+        members.append(replace(node, pos=None))
     if missing:
         raise ResolveError(
             f"Subchart {chart.chart_id!r} references nodes absent from the master: "
