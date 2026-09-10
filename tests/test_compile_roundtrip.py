@@ -167,3 +167,36 @@ def test_resolved_graph_is_emitted_for_ui(repo: Path, mind: Mind) -> None:
     assert len(resolved["nodes"]) == 3
     assert len(resolved["edges"]) == 4
     assert mind.index_path.exists()
+
+
+def test_stale_resolved_graphs_are_pruned(repo: Path, mind: Mind) -> None:
+    """A deleted subchart must not leave a live-looking artefact in _build/."""
+    compile_mod.run(repo, check_only=False)
+    ghost = mind.build_dir / "ghost.resolved.json"
+    ghost.write_text('{"chart_id": "ghost"}', encoding="utf-8")
+
+    compile_mod.run(repo, check_only=False)
+    assert not ghost.exists()
+    assert mind.resolved_path("master").exists()
+
+
+def test_subchart_with_no_members_survives_a_round_trip(repo: Path, mind: Mind) -> None:
+    """_prune drops empty lists, but the schema requires member_nodes.
+
+    Without the exception, compile writes a subchart it can no longer read.
+    """
+    sub = {
+        "schema_version": "1.0.0", "chart_id": "empty", "chart_kind": "sub",
+        "derives_from": "master", "title": "Empty", "member_nodes": [],
+    }
+    (mind.subcharts_dir / "empty.graph.json").write_text(
+        json.dumps(sub, indent=2), encoding="utf-8"
+    )
+    compile_mod.run(repo, check_only=False)
+
+    written = json.loads((mind.subcharts_dir / "empty.graph.json").read_text(encoding="utf-8"))
+    assert "member_nodes" in written
+
+    from vulcan_map.core.workspace import load_workspace
+
+    assert load_workspace(repo).chart("empty") is not None, "chart failed to reload"

@@ -12,10 +12,11 @@ from .socket_item import SocketItem
 
 
 class NodeItem(QGraphicsItem):
-    def __init__(self, node: Node):
+    def __init__(self, node: Node, expandable: bool = False):
         super().__init__()
         self.node = node
         self.node_id = node.id
+        self.expandable = expandable
         self.sockets: dict[tuple[str, bool], SocketItem] = {}
 
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsMovable, True)
@@ -117,6 +118,20 @@ class NodeItem(QGraphicsItem):
                            theme.NODE_WIDTH / 2 - 12, theme.SOCKET_ROW),
                     Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight, sid,
                 )
+
+        if self.expandable:
+            # A visible affordance; without it a module block looks like a leaf.
+            painter.setPen(QPen(theme.NODE_TITLE_TEXT))
+            font.setBold(True)
+            font.setPointSizeF(9.0)
+            painter.setFont(font)
+            painter.drawText(
+                QRectF(theme.NODE_WIDTH - 26, 0, 18, theme.TITLE_HEIGHT),
+                Qt.AlignmentFlag.AlignCenter, "⬎",
+            )
+            font.setBold(False)
+            font.setPointSizeF(7.5)
+            painter.setFont(font)
 
         if not self.node.in_region:
             painter.setPen(QPen(theme.NODE_TEXT_DIM))

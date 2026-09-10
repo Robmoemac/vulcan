@@ -24,6 +24,8 @@ class GraphScene(QGraphicsScene):
     #: node_id, x, y  — emitted on drop, not during the drag
     node_position_changed = Signal(str, float, float)
     selection_changed_to = Signal(str)  # node_id or ""
+    #: node_id — user asked to drill into this node's detail chart
+    node_activated = Signal(str)
 
     def __init__(self) -> None:
         super().__init__()
@@ -37,15 +39,16 @@ class GraphScene(QGraphicsScene):
 
     # ------------------------------------------------------------ rendering
 
-    def load(self, graph: ResolvedGraph) -> None:
+    def load(self, graph: ResolvedGraph, expandable: set[str] | None = None) -> None:
         self.clear()
         self.nodes.clear()
         self.edges.clear()
         self._live = None
         self._drag_origin = None
 
+        expandable = expandable or set()
         for node in graph.nodes:
-            item = NodeItem(node)
+            item = NodeItem(node, node.id in expandable)
             self.addItem(item)
             self.nodes[node.id] = item
 
@@ -87,6 +90,14 @@ class GraphScene(QGraphicsScene):
             if isinstance(item, SocketItem):
                 return item
         return None
+
+    def mouseDoubleClickEvent(self, event: QGraphicsSceneMouseEvent) -> None:
+        for item in self.items(event.scenePos()):
+            if isinstance(item, NodeItem):
+                self.node_activated.emit(item.node_id)
+                event.accept()
+                return
+        super().mouseDoubleClickEvent(event)
 
     def mousePressEvent(self, event: QGraphicsSceneMouseEvent) -> None:
         if event.button() == Qt.MouseButton.LeftButton:

@@ -118,3 +118,36 @@ def test_local_node_expands_a_master_node(repo: Path, mind: Mind) -> None:
     assert {n.id for n in graph.nodes} == {
         "propagator.propagate_orbit", "propagator.inner_step"
     }
+
+
+def test_subchart_may_reference_a_node_owned_by_another_subchart(
+    repo: Path, mind: Mind
+) -> None:
+    """Cross-module calls are real edges; membership is not limited to master nodes."""
+    doc = mind.nodes_dir / "propagator" / "helper.md"
+    doc.write_text(
+        _doc("propagate_orbit", "propagator.helper", "src/propagator.py",
+             "propagate_orbit", [_sock("a")], [_sock("b")]),
+        encoding="utf-8",
+    )
+    write_subchart(mind, {
+        **BASE, "chart_id": "owner", "title": "Owner",
+        "member_nodes": [],
+        "local_nodes": [{
+            "id": "propagator.helper", "label": "helper", "kind": "function",
+            "doc": "nodes/propagator/helper.md",
+            "source": {"file": "src/propagator.py", "symbol": "propagate_orbit"},
+            "expands": "propagator.propagate_orbit", "origin": "agent",
+        }],
+    })
+    # a second chart borrows that node without redefining it
+    write_subchart(mind, {
+        **BASE, "chart_id": "borrower", "title": "Borrower",
+        "member_nodes": ["telemetry.run", "propagator.helper"],
+    })
+
+    compile_mod.run(repo, check_only=False)
+    ws = load_workspace(repo)
+    index = {n.id: n for c in ws.charts for n in c.all_nodes()}
+    graph = resolve(ws.chart("borrower"), ws.master, ws.region, index)
+    assert {n.id for n in graph.nodes} == {"telemetry.run", "propagator.helper"}

@@ -190,10 +190,13 @@ def run(
     lifted = lift_sockets(ws)
 
     master = ws.master
+    # Every node in the map, so a subchart can reference one owned by another
+    # chart (a cross-module call is a real edge worth drawing).
+    index = {n.id: n for chart in ws.charts for n in chart.all_nodes()}
     resolved: dict[str, ResolvedGraph] = {}
     for chart in ws.charts:
         try:
-            resolved[chart.chart_id] = resolve(chart, master, ws.region)
+            resolved[chart.chart_id] = resolve(chart, master, ws.region, index)
         except Exception as exc:
             ws.issues.append(LoadIssue(path=chart.path or mind.root, message=str(exc), rule="V3"))
 
@@ -274,6 +277,14 @@ def _write_all(
             result.written.append(doc.path)
 
     mind.build_dir.mkdir(parents=True, exist_ok=True)
+
+    # Drop resolved graphs for charts that no longer exist, otherwise a deleted
+    # or renamed subchart leaves a stale artefact behind that still looks live.
+    current = {mind.resolved_path(cid) for cid in resolved}
+    for stale in mind.build_dir.glob("*.resolved.json"):
+        if stale not in current:
+            stale.unlink()
+
     for chart_id, graph in resolved.items():
         path = mind.resolved_path(chart_id)
         _atomic_write(path, _dump_json(graph.to_dict()))

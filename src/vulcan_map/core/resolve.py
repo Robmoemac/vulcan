@@ -16,17 +16,29 @@ class ResolveError(Exception):
     pass
 
 
-def resolve(chart: Chart, master: Chart | None, region: Region | None = None) -> ResolvedGraph:
+def resolve(
+    chart: Chart,
+    master: Chart | None,
+    region: Region | None = None,
+    index: dict[str, Node] | None = None,
+) -> ResolvedGraph:
+    """Flatten a chart for rendering.
+
+    `index` maps every node id in the map to its node. A subchart may reference
+    any of them, not only the master's: a call from a GNC function into a
+    dynamics function is real and worth drawing, and restricting membership to
+    master nodes would make it unrepresentable.
+    """
     if chart.is_master:
         nodes = list(chart.nodes)
         edges = list(chart.edges)
     else:
-        if master is None:
+        if master is None and index is None:
             raise ResolveError(
                 f"Subchart {chart.chart_id!r} derives from {chart.derives_from!r}, "
                 "which was not loaded."
             )
-        nodes, edges = _resolve_sub(chart, master)
+        nodes, edges = _resolve_sub(chart, master, index)
 
     if region is not None:
         for n in nodes:
@@ -44,8 +56,13 @@ def resolve(chart: Chart, master: Chart | None, region: Region | None = None) ->
     )
 
 
-def _resolve_sub(chart: Chart, master: Chart) -> tuple[list[Node], list[Edge]]:
-    by_id = {n.id: n for n in master.nodes}
+def _resolve_sub(
+    chart: Chart, master: Chart | None, index: dict[str, Node] | None
+) -> tuple[list[Node], list[Edge]]:
+    by_id: dict[str, Node] = dict(index or {})
+    if master is not None:
+        for n in master.nodes:
+            by_id.setdefault(n.id, n)
 
     members: list[Node] = []
     missing: list[str] = []
@@ -54,7 +71,7 @@ def _resolve_sub(chart: Chart, master: Chart) -> tuple[list[Node], list[Edge]]:
         if node is None:
             missing.append(nid)
             continue
-        # Copy so a subchart's position override cannot leak into the master.
+        # Copy so a subchart's position override cannot leak into its owner.
         members.append(replace(node))
     if missing:
         raise ResolveError(
@@ -67,9 +84,11 @@ def _resolve_sub(chart: Chart, master: Chart) -> tuple[list[Node], list[Edge]]:
 
     # Master edges are inherited when both endpoints are members — never copied
     # into the subchart file, so the master stays the single source for them.
-    inherited = [
-        e for e in master.edges if e.from_.node in present and e.to.node in present
-    ]
+    inherited = (
+        [e for e in master.edges if e.from_.node in present and e.to.node in present]
+        if master is not None
+        else []
+    )
     edges = inherited + list(chart.local_edges)
 
     seen: set[str] = set()

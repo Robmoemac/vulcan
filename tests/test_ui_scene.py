@@ -234,3 +234,81 @@ def test_doc_panel_renders_a_node_with_math(repo: Path, session: Session, qapp) 
     html = panel.browser.toHtml()
     assert "propagate_orbit" in html
     assert panel.title.text() == "propagator.propagate_orbit"
+
+
+# --- drill-through ------------------------------------------------------------
+
+def test_expansions_maps_parent_nodes_to_their_detail_charts(repo: Path, mind: Mind, qapp) -> None:
+    import json
+
+    doc = mind.nodes_dir / "propagator" / "inner.md"
+    doc.write_text(
+        open(mind.nodes_dir / "propagator" / "propagate_orbit.md", encoding="utf-8")
+        .read()
+        .replace("id: propagator.propagate_orbit", "id: propagator.inner")
+        .replace("label: propagate_orbit", "label: inner"),
+        encoding="utf-8",
+    )
+    sub = {
+        "schema_version": "1.0.0", "chart_id": "detail", "chart_kind": "sub",
+        "derives_from": "master", "title": "Detail",
+        "member_nodes": ["propagator.propagate_orbit"],
+        "local_nodes": [{
+            "id": "propagator.inner", "label": "inner", "kind": "function",
+            "doc": "nodes/propagator/inner.md",
+            "source": {"file": "src/propagator.py", "symbol": "propagate_orbit"},
+            "expands": "propagator.propagate_orbit", "origin": "agent",
+        }],
+        "local_edges": [],
+    }
+    (mind.subcharts_dir / "detail.graph.json").write_text(json.dumps(sub, indent=2), encoding="utf-8")
+
+    s = Session(repo_root=repo)
+    s.reload()
+    assert s.expansions().get("propagator.propagate_orbit") == ["detail"]
+    assert s.expansion_for("propagator.propagate_orbit") == "detail"
+    assert s.expansion_for("telemetry.run") is None
+
+
+def test_scene_marks_expandable_nodes(session: Session) -> None:
+    scene = GraphScene()
+    graph = session.graph("master")
+    scene.load(graph, {"propagator.propagate_orbit"})
+    assert scene.nodes["propagator.propagate_orbit"].expandable is True
+    assert scene.nodes["telemetry.run"].expandable is False
+
+
+def test_double_click_emits_node_activated(session: Session, qapp) -> None:
+    """Regression: `expands` existed in the data but nothing in the UI used it."""
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtWidgets import QGraphicsSceneMouseEvent
+
+    scene = GraphScene()
+    scene.load(session.graph("master"), set())
+    seen: list[str] = []
+    scene.node_activated.connect(seen.append)
+
+    target = scene.nodes["telemetry.run"]
+    event = QGraphicsSceneMouseEvent(QGraphicsSceneMouseEvent.Type.GraphicsSceneMouseDoubleClick)
+    event.setScenePos(target.sceneBoundingRect().center())
+    event.setButton(Qt.MouseButton.LeftButton)
+    scene.mouseDoubleClickEvent(event)
+
+    assert seen == ["telemetry.run"]
+
+
+def test_double_click_on_empty_canvas_emits_nothing(session: Session, qapp) -> None:
+    from PySide6.QtCore import QPointF, Qt
+    from PySide6.QtWidgets import QGraphicsSceneMouseEvent
+
+    scene = GraphScene()
+    scene.load(session.graph("master"), set())
+    seen: list[str] = []
+    scene.node_activated.connect(seen.append)
+
+    event = QGraphicsSceneMouseEvent(QGraphicsSceneMouseEvent.Type.GraphicsSceneMouseDoubleClick)
+    event.setScenePos(QPointF(-9999, -9999))
+    event.setButton(Qt.MouseButton.LeftButton)
+    scene.mouseDoubleClickEvent(event)
+
+    assert seen == []

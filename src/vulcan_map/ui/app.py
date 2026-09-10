@@ -60,6 +60,7 @@ class MainWindow(QMainWindow):
         self.scene.connection_requested.connect(self._on_connection_requested)
         self.scene.node_position_changed.connect(self._on_node_moved)
         self.scene.selection_changed_to.connect(self._on_node_selected)
+        self.scene.node_activated.connect(self._on_node_activated)
         self.view = GraphView(self.scene)
 
         self.doc_panel = DocPanel()
@@ -76,6 +77,7 @@ class MainWindow(QMainWindow):
         self.status = self.statusBar()
         self.status.setStyleSheet("background:#1f2228;color:#8b94a3;")
 
+        self._history: list[str] = []
         self._build_actions()
         self._did_initial_fit = False
         self.refresh()
@@ -101,6 +103,11 @@ class MainWindow(QMainWindow):
         refresh.setShortcut(QKeySequence("Ctrl+R"))
         refresh.triggered.connect(lambda: self.refresh())
         self.addAction(refresh)
+
+        back = QAction("Back", self)
+        back.setShortcuts([QKeySequence("Alt+Left"), QKeySequence("Backspace")])
+        back.triggered.connect(self._go_back)
+        self.addAction(back)
 
         fit = QAction("Fit view", self)
         fit.setShortcut(QKeySequence("F"))
@@ -138,7 +145,7 @@ class MainWindow(QMainWindow):
 
         graph = self.session.graph(self.current_chart)
         if graph is not None:
-            self.scene.load(graph)
+            self.scene.load(graph, set(self.session.expansions()))
             if fit:
                 self.view.fit()
 
@@ -159,10 +166,47 @@ class MainWindow(QMainWindow):
         self.current_chart = current.data(Qt.ItemDataRole.UserRole)
         graph = self.session.graph(self.current_chart)
         if graph is not None:
-            self.scene.load(graph)   # pre-resolved: switching is a scene swap
+            self.scene.load(graph, set(self.session.expansions()))
             self.view.fit()
         self.doc_panel.clear_doc()
         self._update_status()
+
+    def _on_node_activated(self, node_id: str) -> None:
+        """Drill into the chart that expands this node."""
+        target = self.session.expansion_for(node_id)
+        if target is None:
+            self.status.showMessage(
+                f"{node_id} has no detail chart — it is already at the finest "
+                "granularity mapped.", 5000,
+            )
+            return
+        self._open_chart(target, remember=True)
+
+    def _open_chart(self, chart_id: str, *, remember: bool) -> None:
+        if chart_id == self.current_chart:
+            return
+        if remember:
+            self._history.append(self.current_chart)
+        self.current_chart = chart_id
+        for i in range(self.sidebar.count()):
+            item = self.sidebar.item(i)
+            if item.data(Qt.ItemDataRole.UserRole) == chart_id:
+                self.sidebar.blockSignals(True)
+                self.sidebar.setCurrentItem(item)
+                self.sidebar.blockSignals(False)
+                break
+        graph = self.session.graph(chart_id)
+        if graph is not None:
+            self.scene.load(graph, set(self.session.expansions()))
+            self.view.fit()
+        self.doc_panel.clear_doc()
+        self._update_status()
+
+    def _go_back(self) -> None:
+        if not self._history:
+            self.status.showMessage("No chart to go back to.", 3000)
+            return
+        self._open_chart(self._history.pop(), remember=False)
 
     def _on_node_selected(self, node_id: str) -> None:
         if not node_id:

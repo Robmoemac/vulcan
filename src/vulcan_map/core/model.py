@@ -335,14 +335,19 @@ class Chart:
         if self.is_master:
             base["nodes"] = [n.to_dict() for n in self.nodes]
             base["edges"] = [e.to_dict() for e in self.edges]
-        else:
-            base["derives_from"] = self.derives_from
-            base["member_nodes"] = list(self.member_nodes)
-            base["local_nodes"] = [n.to_dict() for n in self.local_nodes]
-            base["local_edges"] = [e.to_dict() for e in self.local_edges]
-            if self.pos_overrides:
-                base["ui"] = {"pos_overrides": {k: list(v) for k, v in self.pos_overrides.items()}}
-        return _prune(base)
+            return _prune(base)
+
+        base["derives_from"] = self.derives_from
+        base["local_nodes"] = [n.to_dict() for n in self.local_nodes]
+        base["local_edges"] = [e.to_dict() for e in self.local_edges]
+        if self.pos_overrides:
+            base["ui"] = {"pos_overrides": {k: list(v) for k, v in self.pos_overrides.items()}}
+        out = _prune(base)
+        # The schema requires member_nodes on a subchart, and _prune drops empty
+        # lists — so a subchart with no members must still emit the key, or the
+        # file compile just wrote fails to load on the next run.
+        out["member_nodes"] = list(self.member_nodes)
+        return out
 
     def copy_with(self, **kw: Any) -> Chart:
         return replace(self, **kw)

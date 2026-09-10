@@ -67,9 +67,10 @@ class Workspace:
     def resolved(self) -> dict[str, object]:
         out: dict[str, object] = {}
         master = self.master
+        index = {n.id: n for c in self.charts for n in c.all_nodes()}
         for chart in self.charts:
             try:
-                out[chart.chart_id] = resolve(chart, master, self.region)
+                out[chart.chart_id] = resolve(chart, master, self.region, index)
             except ResolveError as exc:
                 self.issues.append(LoadIssue(path=chart.path or self.mind.root, message=str(exc), rule="V3"))
         return out

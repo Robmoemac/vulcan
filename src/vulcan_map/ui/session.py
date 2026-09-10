@@ -47,6 +47,25 @@ class Session:
             (f.format() for f in findings if f.severity == "error"), None
         )
 
+    def expansions(self) -> dict[str, list[str]]:
+        """node id -> charts that expand it to finer granularity.
+
+        This is what makes a high-level block clickable: the `expands` field has
+        always been in the data, and without this the UI rendered module nodes as
+        leaves with no way in.
+        """
+        out: dict[str, set[str]] = {}
+        for graph in self.graphs.values():
+            for node in graph.nodes:
+                if node.expands:
+                    out.setdefault(node.expands, set()).add(graph.chart_id)
+        return {k: sorted(v) for k, v in sorted(out.items())}
+
+    def expansion_for(self, node_id: str) -> str | None:
+        """The single best chart to open for a node, if any."""
+        charts = self.expansions().get(node_id) or []
+        return charts[0] if charts else None
+
     def charts(self) -> list[ChartInfo]:
         return [
             ChartInfo(g.chart_id, g.chart_kind, g.title, len(g.nodes), len(g.edges))
