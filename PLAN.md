@@ -213,6 +213,12 @@ for a large repo.
 node links to the subchart(s) that expand it. Function-level detail lives in subcharts.
 The `--granularity function` flag overrides for small repos.
 
+**Revised by D13:** readability is not only a master-chart concern. Under D11 a module
+subchart of a real repo renders hundreds of symbols, and a workflow view (D12) can render
+more. D13 makes nesting mandatory at every level: no sheet may render more than
+`max_nodes_per_sheet` nodes (V20), and compile clusters oversized sheets into macro
+blocks that open into nested sheets. See §9.2c.
+
 ### A10 — "Augment" semantics: mutate in place or version?
 
 **Chosen:** mutate in place. Git is the version history; a bespoke versioning scheme would
@@ -649,6 +655,7 @@ Severity: **E** = error (blocks), **W** = warning (promoted to error under `--st
 | V14 | W | No isolated nodes (degree 0) unless `kind: group` |
 | V18 | E | **Workflows (D12):** a workflow chart is seeded, its seeds are real nodes, and it resolves to something |
 | V19 | E | **One symbol, one node:** no two nodes define the same `(file, symbol)` anywhere in the map |
+| V20 | E | **Readability (D13):** no chart renders more than `coverage.max_nodes_per_sheet` nodes (default 40) after clustering |
 | V15 | E | Generated blocks on disk match what the compiler would emit (drift detection) |
 | V16 | W | A prose wikilink to another node with no corresponding edge (A4) |
 | V17 | W | `source.lines` no longer bracket the symbol (map is stale vs. current code) |
@@ -1079,6 +1086,53 @@ Why not the alternatives:
 - *Pure call-graph traversal with no human input* — cannot know where a named workflow
   begins.
 
+### 9.2c Readability by nesting (D13)
+
+**Problem.** The first complete map of SpaceAGORA passed every gate and was still unusable:
+the GNC subchart rendered ~500 symbols, the aerobraking workflow 415, and the layered layout
+stacked them into columns 24,000 px tall. A force layout would only rearrange the wall.
+The owner's direction was explicit: use the nesting the tool already supports — macro
+blocks you click through — so every sheet reads left to right like a Blender node tree.
+
+**Mechanism.** A compile step (`core/cluster.py`) runs after workflow membership and before
+resolution, in memory in both `compile` and `check`:
+
+1. For every chart that is not the master, count the symbols it is responsible for
+   (its `local_nodes` for a module subchart; its `member_nodes` for a generated sheet or a
+   workflow). If the count exceeds `max_nodes_per_sheet`, partition them by the code's own
+   structure — the first directory level at which the files diverge, then file, then, for a
+   single file with too many symbols, the leading token of the symbol name (`_initialize_*`,
+   `_rhs_*`). Blocks smaller than `cluster_min_group` are merged into one "small files"
+   block. Partitioning is deterministic (path order, id tie-breaks).
+2. Each block becomes a **`group` node**, owned by the module subchart, with sockets
+   `members_in`/`members_out`, `tags: [cluster]`, and a doc skeleton at
+   `nodes/<module>/<block>.md`. Group nodes are a real prose obligation: V12 applies at the
+   symbol floor. Skeletons never clear the floor, so the gate keeps failing until someone
+   writes what the block *is*.
+3. Each block gets a **generated nested chart** `graph/subcharts/<root>-<block>.graph.json`
+   (`chart_kind: sub`, `derives_from: <parent chart>`, `group: <group node id>`,
+   `provenance.generated_by: cluster`). Its `member_nodes` are regenerated every compile;
+   hand edits do not survive. Nested charts are clustered again until every sheet is
+   readable.
+4. **Resolution folds children.** A chart does not render nodes claimed by a child chart's
+   `member_nodes`; it renders the child's group node instead, and every edge touching a
+   hidden member is lifted onto the group's sockets, deduplicated and labelled with the
+   count (`"3 edges"`). Edges internal to a block are drawn only on the nested sheet.
+   A cluster group node is visible only on the one sheet it partitions.
+5. **Workflows reuse the module hierarchy.** A workflow view never mints group nodes: its
+   members are projected onto the module charts' blocks, and its nested sheets
+   (`<workflow>-<block>`) hold only the workflow's members of each block. Drill-in is
+   therefore resolved per `(parent chart, group node)`, not per node: the same block opens
+   the whole file from a module sheet and only the workflow's slice from a workflow sheet.
+   The UI reads `derives_from`/`group` off the generated chart to do this.
+6. **V20** fails any sheet still over the limit. Compile cannot manufacture structure that
+   the code lacks — one file whose symbols share a single prefix is the known case — and
+   the fix is a hand-authored split, never a larger limit.
+
+**Why not a force layout.** Repulsion and centring would compress the wall, not remove
+it. The information a reader needs at the top of a sheet is *which* subsystems talk to
+which, and that is exactly what a group node with lifted, counted edges shows.
+
 ### 9.3b Handoff between agents (D10)
 
 A map is not necessarily built by one agent in one sitting. It may be started by
@@ -1451,6 +1505,7 @@ implementation.**
 | D7 | **§9.4** | **Baseline agent adapters: Claude Code, Codex, Devin, generic `AGENTS.md`.** Cursor is deliberately excluded from the baseline; adapters are additive and can be added later. | 2026-09-08 |
 | D8 | **§8.1** | **`vulcan check` never runs in CI and installs no pre-commit hook.** It runs during map creation and edits — inside the skill's own batch loop, at the completion gate, and on every UI mutation. Staleness is reported by V17, not enforced at merge. | 2026-09-08 |
 | D9 | **A8 / §6.3** | **A subchart is a view over the master node set**, not an independent graph: it references master nodes by ID and may add finer nodes via `expands`, but cannot contradict the master. *Default retained — flagged for ratification (see note below).* | 2026-09-08 |
+| D13 | **§9.2c / A9** | **Readability by nesting is mandatory.** No sheet renders more than `max_nodes_per_sheet` (40) nodes; compile clusters oversized sheets into `group` nodes with generated nested sheets (directory → file → name prefix), lifts edges onto the blocks, and workflows reuse the module hierarchy. Group nodes carry an agent-written doc. Enforced by V20. Force-directed layout was considered and rejected: it compresses a wall, it does not remove one. | 2026-09-13 |
 | D12 | **§9.2b** | **Cross-cutting workflow views are a first-class chart kind.** A `workflow` chart records agent-chosen *seeds*; the compiler generates `member_nodes` from them by traversing the traced call graph. Existing nodes are borrowed, never duplicated (V19). Enforced by V18. | 2026-09-10 |
 | D11 | **A2 / §8.2** | **"Function-level" means a node per significant symbol** — every function, type, macro, module and non-dunder method — not one node standing in for a file. Enforced by V13e against deterministic per-language enumeration. Supersedes the original reading of D3; it is not an optional deeper pass. | 2026-09-10 |
 | D10 | **§9.3b** | **Completion may never rest on an agent's self-report, from any adapter.** The map must be resumable by any agent, of any vendor, with any context window, without trusting a predecessor. Enforced by a tool-written `HANDOFF.md`, `vulcan status`, and a mandatory `vulcan check --strict --proof` block in every completion report. | 2026-09-09 |

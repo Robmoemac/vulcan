@@ -292,6 +292,12 @@ class Chart:
     seeds: list[Any] = field(default_factory=list)
     traversal: dict[str, Any] = field(default_factory=dict)
 
+    # Cluster-generated charts only (PLAN.md D13): the group node, owned by
+    # `derives_from`'s hierarchy, whose internals this chart shows. Drill-in is
+    # resolved per (parent chart, group node), so one group node can open a
+    # different sheet from a module chart than from a workflow view.
+    group: str | None = None
+
     #: Filesystem path this chart was loaded from; None for resolved charts.
     path: Any = None
 
@@ -302,6 +308,11 @@ class Chart:
     @property
     def is_workflow(self) -> bool:
         return self.chart_kind == "workflow"
+
+    @property
+    def is_generated(self) -> bool:
+        """Written by compile (cluster step), never by hand; regenerated every run."""
+        return self.provenance.get("generated_by") == "cluster"
 
     def node_by_id(self, node_id: str) -> Node | None:
         for n in self.all_nodes():
@@ -339,6 +350,7 @@ class Chart:
             pos_overrides=overrides,
             seeds=list(d.get("seeds", [])),
             traversal=dict(d.get("traversal", {})),
+            group=d.get("group"),
             path=path,
         )
 
@@ -352,11 +364,16 @@ class Chart:
             "provenance": self.provenance,
         }
         if self.is_master:
-            base["nodes"] = [n.to_dict() for n in self.nodes]
-            base["edges"] = [e.to_dict() for e in self.edges]
-            return _prune(base)
+            # The schema requires both keys on a master; _prune would drop an
+            # empty edges list and the file compile just wrote would then fail
+            # V1 on the next run (the same trap as member_nodes below).
+            out = _prune(base)
+            out["nodes"] = [n.to_dict() for n in self.nodes]
+            out["edges"] = [e.to_dict() for e in self.edges]
+            return out
 
         base["derives_from"] = self.derives_from
+        base["group"] = self.group
         if self.is_workflow:
             base["seeds"] = list(self.seeds)
             base["traversal"] = dict(self.traversal)

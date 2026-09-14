@@ -12,6 +12,7 @@
     "title": { "type": "string", "minLength": 1 },
     "region": { "type": "string" },
     "derives_from": { "$ref": "#/$defs/chartId" },
+    "group": { "$ref": "#/$defs/nodeId" },
     "provenance": {
       "type": "object",
       "additionalProperties": true,

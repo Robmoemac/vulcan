@@ -59,6 +59,9 @@ Augmentation frequently breaks two rules in particular:
   - **V5 (acyclicity)** — a finer decomposition can expose a real cycle. If it is
     genuine recursion, classify the back-edge as `kind: "feedback"` (D5). If it
     is not, the decomposition is wrong. Do not disable the rule.
+  - **V12 on a `src_*.md` group doc** — adding symbols pushed a sheet over the
+    readability limit, so compile clustered it (D13) and scaffolded a doc for
+    the new macro block. Write it. Never edit the generated nested chart.
 
 ## Completeness for an augmentation
 

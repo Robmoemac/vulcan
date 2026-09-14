@@ -153,6 +153,38 @@ depth (120 words), a leaf function needs a tight, accurate 40. Do not pad a smal
 function's doc to look like a big one — padding is exactly what the banned-phrase
 lint is looking for.
 
+### Readability: every sheet must be clickable, never a wall (D13)
+
+**No sheet may render more than `max_nodes_per_sheet` nodes (40).** This is
+rule V20 and it is machine-checked on the *rendered* graph, after resolution.
+
+Per-symbol granularity (above) means a module has hundreds of nodes. They must
+not all appear on one sheet. `vulcan compile` handles this for you: it clusters
+an oversized sheet into **macro blocks** — `group` nodes named after the
+directory, file, or symbol-name prefix they stand for — and generates a nested
+sheet behind each one. Edges between blocks are lifted and counted. A reader
+double-clicks a block to see inside it. The same block opens the whole file
+from a module sheet and only the workflow's slice from a workflow sheet.
+
+  REQUIRED:  a GNC sheet showing ~10 blocks (control/, guidance/, navigation/ ...)
+             each of which opens into files, each of which opens into symbols
+  FORBIDDEN: a GNC sheet showing 500 symbols at once, however well laid out
+
+**Group nodes are nodes.** Each one has a doc at `nodes/<module>/<block>.md`,
+scaffolded by compile with an empty Purpose. You write what the block *is* — the
+role of that directory or file in the system, what enters it and what leaves —
+at the symbol floor (40 words). It is not a list of members; the members are on
+the nested sheet. Until every group doc is written, `vulcan check` fails on V12.
+
+**Do not edit generated nested charts** (`provenance.generated_by: cluster`).
+Their membership is recomputed on every compile from the code's structure; your
+edits will not survive and will not change the verdict.
+
+**If V20 fires after compile**, clustering could not partition that sheet: it is
+one file whose symbols share a single name prefix. Split it by hand — a subchart
+with explicit `member_nodes` — or accept the finding as a real limitation of the
+code's structure and say so. Never raise the limit.
+
 ### Grounding is checked mechanically — you cannot talk your way past it
 
 Every node names a real file and a real symbol. `vulcan check` **opens the file

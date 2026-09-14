@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import Any
 
 from .. import SCHEMA_VERSION, __version__
+from . import cluster as cluster_mod
 from . import handoff as handoff_mod
 from . import pending as pending_mod
 from . import workflow as workflow_mod
@@ -37,6 +38,7 @@ class CompileResult:
     sockets_lifted: int = 0
     positions_assigned: int = 0
     pending_applied: int = 0
+    clusters_added: int = 0
     check_only: bool = False
 
     @property
@@ -177,6 +179,7 @@ def run(
 ) -> CompileResult:
     ws = load_workspace(repo_root, region)
     mind = ws.mind
+    result_written_early: list[Path] = []
 
     # Step 4a — fold queued UI edits into the in-memory charts before anything
     # else reads them. Done in check mode too, so `check` validates exactly what
@@ -205,15 +208,39 @@ def run(
                 LoadIssue(path=chart.path or mind.root, message=problem, rule='V18')
             )
 
+    # Step 4d — readability by nesting (D13). Oversized sheets are partitioned
+    # into group nodes with generated nested charts. Done in memory in check
+    # mode too, so `check` sees the clustered picture `compile` would write.
+    clusters = cluster_mod.apply(ws)
+    if not check_only:
+        # Group-node doc skeletons (D13), written now so the ICD/Connections
+        # blocks below are generated into them in this same run. Like scaffold,
+        # a skeleton never clears the prose floor: the gate keeps failing until
+        # someone writes the block's purpose.
+        from .frontmatter import parse as parse_doc
+
+        for path, text in clusters.docs_to_scaffold.items():
+            if not path.exists():
+                _atomic_write(path, text)
+                result_written_early.append(path)
+            ws.docs.append(parse_doc(path))
+
     master = ws.master
     # Every node in the map, so a subchart can reference one owned by another
     # chart (a cross-module call is a real edge worth drawing).
     index = {n.id: n for chart in ws.charts for n in chart.all_nodes()}
     every_edge = [e for c in ws.charts for e in c.all_edges()]
+    children_of: dict[str, list[Chart]] = {}
+    for c in ws.charts:
+        if c.group and c.derives_from:
+            children_of.setdefault(c.derives_from, []).append(c)
     resolved: dict[str, ResolvedGraph] = {}
     for chart in ws.charts:
         try:
-            resolved[chart.chart_id] = resolve(chart, master, ws.region, index, every_edge)
+            resolved[chart.chart_id] = resolve(
+                chart, master, ws.region, index, every_edge,
+                children=children_of.get(chart.chart_id),
+            )
         except Exception as exc:
             ws.issues.append(LoadIssue(path=chart.path or mind.root, message=str(exc), rule="V3"))
 
@@ -243,7 +270,7 @@ def run(
     all_edges = [e for c in ws.charts for e in c.all_edges()]
     blocks = expected_blocks(ws, all_edges)
 
-    report = validate(ws, expected_blocks=blocks if check_only else None)
+    report = validate(ws, expected_blocks=blocks if check_only else None, resolved=resolved)
 
     result = CompileResult(
         workspace=ws,
@@ -252,12 +279,18 @@ def run(
         sockets_lifted=lifted,
         positions_assigned=assigned,
         pending_applied=applied,
+        clusters_added=len(clusters.charts_added) + len(clusters.groups_added),
         check_only=check_only,
     )
     if check_only:
         return result
 
+    result.written.extend(result_written_early)
     _write_all(ws, mind, resolved, blocks, report, strict, result)
+
+    for chart in clusters.charts_removed:
+        if chart.path and chart.path.exists():
+            chart.path.unlink()
 
     # Cleared only after the charts are safely on disk. Validation errors do not
     # block clearing: the edit now lives in canonical JSON, where the findings

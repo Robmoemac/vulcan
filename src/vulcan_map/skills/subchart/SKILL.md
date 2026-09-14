@@ -114,10 +114,11 @@ Membership is generated here. Then open it and check it against your
 understanding of the workflow:
 
 - **Too small?** The call edges may not be traced yet, or the direction is wrong.
-- **Too large?** Reduce `--depth`, or use narrower seeds.
-- **Missing a real step?** That step may genuinely not be mapped. Map it with
-  `vulcan-map`, then recompile — the workflow picks it up automatically, because
-  membership is computed rather than fixed.
+- **Too large?** A large workflow is fine — compile nests it (D13). The top
+  sheet shows macro blocks (directories and files of the modules the workflow
+  crosses) with lifted, counted edges; each block opens into the workflow's
+  members of that block. Only reduce `--depth` or narrow the seeds if the
+  workflow genuinely spans more than one concern.
 
 ### 5. Only now, create nodes — and only for genuine gaps
 

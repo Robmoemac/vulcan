@@ -85,6 +85,11 @@ class Config:
     require_subchart_per_module: bool = True
     require_function_node_per_file: bool = True
     require_node_per_symbol: bool = True
+    # D13: a sheet that renders more than this many nodes is unreadable and
+    # fails V20; compile clusters it into group nodes with nested sheets.
+    max_nodes_per_sheet: int = 40
+    # Clusters smaller than this are merged into one "small files" group.
+    cluster_min_group: int = 3
     path: Path | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -157,6 +162,8 @@ def load_config(path: Path) -> Config:
             "require_function_node_per_file", True
         ),
         require_node_per_symbol=coverage.get("require_node_per_symbol", True),
+        max_nodes_per_sheet=coverage.get("max_nodes_per_sheet", 40),
+        cluster_min_group=coverage.get("cluster_min_group", 3),
         path=path,
         raw=raw,
     )

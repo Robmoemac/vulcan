@@ -29,6 +29,8 @@ class Session:
     region: str | None = None
     mind: Mind = field(init=False)
     graphs: dict[str, ResolvedGraph] = field(default_factory=dict)
+    #: chart id -> {"derives_from", "group"} for nested drill-in (D13).
+    chart_meta: dict[str, dict[str, str | None]] = field(default_factory=dict)
     errors: int = 0
     warnings: int = 0
     last_error: str | None = None
@@ -40,6 +42,10 @@ class Session:
         """Recompile and re-read. This is the only way graphs are populated."""
         result = compile_mod.run(self.repo_root, region=self.region, check_only=False)
         self.graphs = dict(result.resolved)
+        self.chart_meta = {
+            c.chart_id: {"derives_from": c.derives_from, "group": c.group}
+            for c in result.workspace.charts
+        }
         findings = result.report.findings
         self.errors = len([f for f in findings if f.severity == "error"])
         self.warnings = len([f for f in findings if f.severity == "warning"])
@@ -61,8 +67,20 @@ class Session:
                     out.setdefault(node.expands, set()).add(graph.chart_id)
         return {k: sorted(v) for k, v in sorted(out.items())}
 
-    def expansion_for(self, node_id: str) -> str | None:
-        """The single best chart to open for a node, if any."""
+    def expansion_for(self, node_id: str, from_chart: str | None = None) -> str | None:
+        """The single best chart to open for a node, if any.
+
+        A cluster group node (D13) opens a different sheet depending on where it
+        was clicked: from a module sheet, the whole block; from a workflow sheet,
+        only the workflow's members of it. That per-parent nesting is recorded on
+        the generated chart (`derives_from`, `group`), so it wins over the node's
+        own `expands`.
+        """
+        if from_chart is not None:
+            for cid, graph in sorted(self.graphs.items()):
+                meta = self.chart_meta.get(cid) or {}
+                if meta.get("group") == node_id and meta.get("derives_from") == from_chart:
+                    return cid
         charts = self.expansions().get(node_id) or []
         return charts[0] if charts else None
 

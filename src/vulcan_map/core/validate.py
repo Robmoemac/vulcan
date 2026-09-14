@@ -81,7 +81,12 @@ class Report:
 _ID_RE = re.compile(r"^[a-z0-9_]+(\.[a-z0-9_]+)*$")
 
 
-def validate(ws: Workspace, *, expected_blocks: dict[Path, dict[str, str]] | None = None) -> Report:
+def validate(
+    ws: Workspace,
+    *,
+    expected_blocks: dict[Path, dict[str, str]] | None = None,
+    resolved: dict[str, Any] | None = None,
+) -> Report:
     report = Report()
 
     for issue in ws.issues:
@@ -109,6 +114,8 @@ def validate(ws: Workspace, *, expected_blocks: dict[Path, dict[str, str]] | Non
     _v17_stale_lines(ws, nodes, report)
     _v18_workflows(ws, by_id, report)
     _v19_no_duplicate_symbols(ws, report)
+    if resolved is not None:
+        _v20_sheet_size(ws, resolved, report)
 
     return report
 
@@ -399,6 +406,8 @@ def _v12_prose(ws: Workspace, nodes: list[Node], report: Report) -> None:
                 )
 
         node = kinds.get(doc.id or "")
+        # Cluster group nodes summarise a file or directory; they are held to
+        # the symbol floor, not the module floor (D13).
         covering = node.is_covering if node is not None else True
         floor = ws.config.min_doc_words if covering else ws.config.min_doc_words_symbol
 
@@ -814,3 +823,29 @@ def _v19_no_duplicate_symbols(ws: Workspace, report: Report) -> None:
                 )
             else:
                 owner[key] = (node.id, chart.chart_id)
+
+
+# ---------------------------------------------------------------- V20
+
+def _v20_sheet_size(ws: Workspace, resolved: dict[str, Any], report: Report) -> None:
+    """Readability gate (D13): no sheet may render more nodes than the limit.
+
+    Compile clusters oversized sheets automatically, so a finding here means
+    clustering could not partition the sheet any further — typically one file
+    whose symbols share a single name prefix. The fix is a hand-authored split
+    or a smaller region, never a bigger limit.
+    """
+    limit = ws.config.max_nodes_per_sheet
+    for chart_id in sorted(resolved):
+        graph = resolved[chart_id]
+        n = len(graph.nodes)
+        if n > limit:
+            report.add(
+                Finding(
+                    "V20", ERROR,
+                    f"chart {chart_id!r} renders {n} nodes; the readability limit is {limit}",
+                    hint="D13: sheets must be readable at fit-to-window. Split this block "
+                         "by hand (a subchart with explicit member_nodes) or lower the "
+                         "granularity of what it covers.",
+                )
+            )

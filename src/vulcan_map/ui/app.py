@@ -173,7 +173,7 @@ class MainWindow(QMainWindow):
 
     def _on_node_activated(self, node_id: str) -> None:
         """Drill into the chart that expands this node."""
-        target = self.session.expansion_for(node_id)
+        target = self.session.expansion_for(node_id, self.current_chart)
         if target is None:
             self.status.showMessage(
                 f"{node_id} has no detail chart — it is already at the finest "
