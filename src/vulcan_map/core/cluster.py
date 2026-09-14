@@ -89,6 +89,11 @@ class ClusterResult:
     groups_added: list[Node] = field(default_factory=list)
     docs_to_scaffold: dict[Path, str] = field(default_factory=dict)
     memberships_changed: int = 0
+    #: Charts whose rendered node set changed this compile. Their auto layout
+    #: is stale by definition, so compile re-flows them (positions are relative
+    #: to a sheet's contents; a sheet that just gained or lost blocks is a new
+    #: sheet). Human drags made after the reflow stick as usual (D6).
+    reflow: set[str] = field(default_factory=set)
 
     @property
     def changed(self) -> bool:
@@ -307,6 +312,7 @@ def _cluster_module_chart(
         if gid not in wanted and child.is_generated:
             ws.charts.remove(child)
             result.charts_removed.append(child)
+            result.reflow.add(chart.chart_id)
 
     owner = ws.chart(owner_chart)
     owned_groups = {n.id: n for n in (owner.local_nodes if owner else [])}
@@ -328,9 +334,11 @@ def _cluster_module_chart(
             child = _make_nested_chart(chart, gid, plan, plan.members, ws.mind.subcharts_dir, owner_chart)
             ws.charts.append(child)
             result.charts_added.append(child)
+            result.reflow.add(chart.chart_id)
         elif child.member_nodes != plan.members:
             child.member_nodes = list(plan.members)
             result.memberships_changed += 1
+            result.reflow.update({chart.chart_id, child.chart_id})
         # Recurse: a block may still be too big.
         _cluster_module_chart(ws, child, index, result, threshold, min_group, owner_chart)
 
@@ -377,6 +385,7 @@ def _cluster_workflow_chart(
         if gid not in blocks and child.is_generated:
             ws.charts.remove(child)
             result.charts_removed.append(child)
+            result.reflow.add(chart.chart_id)
 
     for gid in sorted(blocks):
         mem = sorted(blocks[gid])
@@ -388,9 +397,11 @@ def _cluster_workflow_chart(
             child = _make_nested_chart(chart, gid, plan, mem, ws.mind.subcharts_dir, root)
             ws.charts.append(child)
             result.charts_added.append(child)
+            result.reflow.add(chart.chart_id)
         elif child.member_nodes != mem:
             child.member_nodes = mem
             result.memberships_changed += 1
+            result.reflow.update({chart.chart_id, child.chart_id})
         _cluster_workflow_chart(ws, child, index, hierarchy, result, threshold, level + 1, root)
 
 

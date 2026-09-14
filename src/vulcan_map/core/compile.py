@@ -253,6 +253,15 @@ def run(
         graph = resolved.get(chart.chart_id)
         if graph is None:
             continue
+        if chart.chart_id in clusters.reflow:
+            # The sheet's contents changed (blocks appeared or moved), so every
+            # stored position on it was laid out for a different sheet. Drop them
+            # and let the layout engine place the new picture from scratch.
+            chart.pos_overrides.clear()
+            for node in graph.nodes:
+                node.pos = None
+            for node in (chart.nodes if chart.is_master else chart.local_nodes):
+                node.pos = None
         for node in graph.nodes:
             if node.pos is None and not chart.is_master:
                 node.pos = chart.pos_overrides.get(node.id)
