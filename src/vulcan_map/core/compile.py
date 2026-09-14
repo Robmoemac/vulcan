@@ -277,6 +277,15 @@ def run(
                 chart.pos_overrides[node.id] = node.pos
 
     all_edges = [e for c in ws.charts for e in c.all_edges()]
+    # Lifted block-to-block edges exist only on resolved sheets (D13). A group
+    # node's Connections block would otherwise always read "none", which is
+    # exactly the wrong thing to tell a reader about a macro block.
+    seen = {e.id for e in all_edges}
+    for graph in resolved.values():
+        for e in graph.edges:
+            if e.id not in seen and (e.from_.node.startswith("grp.") or e.to.node.startswith("grp.")):
+                seen.add(e.id)
+                all_edges.append(e)
     blocks = expected_blocks(ws, all_edges)
 
     report = validate(ws, expected_blocks=blocks if check_only else None, resolved=resolved)
