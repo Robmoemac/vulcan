@@ -21,6 +21,8 @@ class ChartInfo:
     title: str
     nodes: int
     edges: int
+    #: True for cluster-generated nested sheets (D13); reached by drill-in, not listed.
+    generated: bool = False
 
 
 @dataclass(slots=True)
@@ -43,7 +45,11 @@ class Session:
         result = compile_mod.run(self.repo_root, region=self.region, check_only=False)
         self.graphs = dict(result.resolved)
         self.chart_meta = {
-            c.chart_id: {"derives_from": c.derives_from, "group": c.group}
+            c.chart_id: {
+                "derives_from": c.derives_from,
+                "group": c.group,
+                "generated": (c.provenance or {}).get("generated_by"),
+            }
             for c in result.workspace.charts
         }
         findings = result.report.findings
@@ -90,7 +96,10 @@ class Session:
 
     def charts(self) -> list[ChartInfo]:
         return [
-            ChartInfo(g.chart_id, g.chart_kind, g.title, len(g.nodes), len(g.edges))
+            ChartInfo(
+                g.chart_id, g.chart_kind, g.title, len(g.nodes), len(g.edges),
+                generated=bool((self.chart_meta.get(g.chart_id) or {}).get("generated")),
+            )
             for g in sorted(
                 self.graphs.values(), key=lambda g: (g.chart_kind != "master", g.chart_id)
             )
@@ -115,4 +124,5 @@ class Session:
         state = "PASS" if self.errors == 0 else f"FAIL ({self.errors} error)"
         warn = f" · {self.warnings} warning" if self.warnings else ""
         region = self.region or "default"
-        return f"{n} nodes · {e} edges · region {region} · check: {state}{warn}"
+        title = graph.title if graph else chart_id
+        return f"{title} · {n} nodes · {e} edges · region {region} · check: {state}{warn}"

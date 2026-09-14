@@ -131,6 +131,10 @@ class MainWindow(QMainWindow):
         self.sidebar.blockSignals(True)
         self.sidebar.clear()
         for info in charts:
+            # Generated nested sheets (D13) are reached by double-clicking their
+            # block, never from the list: 250 of them would bury the real charts.
+            if info.generated:
+                continue
             prefix = "◆ " if info.chart_kind == "master" else "   "
             item = QListWidgetItem(f"{prefix}{info.title}")
             item.setData(Qt.ItemDataRole.UserRole, info.chart_id)
