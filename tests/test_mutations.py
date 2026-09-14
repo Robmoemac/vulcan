@@ -33,7 +33,7 @@ def test_add_edge_requires_real_evidence(repo: Path, mind: Mind) -> None:
             evidence_file="src/invented.py",
         )
     assert pending_count(mind) == 0
-    assert len(master(mind)["edges"]) == 4
+    assert len(master(mind)["edges"]) == 6
 
 
 def test_blank_evidence_is_refused(repo: Path, mind: Mind) -> None:

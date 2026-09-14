@@ -298,6 +298,13 @@ def test_v14_isolated_node_warns(repo: Path, mind: Mind) -> None:
             e for e in d["edges"]
             if "telemetry.write_telemetry" not in (e["from"]["node"], e["to"]["node"])
         ]
+        # keep the sink wired (V21) so the only finding is the isolated node
+        d["edges"].append({
+            "id": "e:propagator.propagate_orbit:traj->io.telemetry_file:written",
+            "from": {"node": "propagator.propagate_orbit", "socket": "traj"},
+            "to": {"node": "io.telemetry_file", "socket": "written"},
+            "kind": "dataflow", "evidence": {"file": "src/telemetry.py"}, "origin": "agent",
+        })
     write_master(mind, mutate)
     compile_mod.run(repo, check_only=False)  # edit -> compile -> check, as an agent would
     report = check(repo)

@@ -116,6 +116,7 @@ def validate(
     _v19_no_duplicate_symbols(ws, report)
     if resolved is not None:
         _v20_sheet_size(ws, resolved, report)
+    _v21_operational_master(ws, by_id, report)
 
     return report
 
@@ -849,3 +850,106 @@ def _v20_sheet_size(ws: Workspace, resolved: dict[str, Any], report: Report) -> 
                          "granularity of what it covers.",
                 )
             )
+
+
+# ---------------------------------------------------------------- V21
+
+#: Master node kinds that are already at the finest granularity and therefore
+#: need nothing to open into.
+_LEAF_KINDS: frozenset[str] = frozenset({"function", "struct"})
+
+#: Below this many master edges the hub test is meaningless.
+_HUB_MIN_EDGES = 8
+
+
+def _v21_operational_master(ws: Workspace, by_id: dict[str, Node], report: Report) -> None:
+    """The master is the operational flow, not the package tree (D14).
+
+    The first SpaceAGORA master passed every other rule and told a reader
+    nothing: thirteen `include` arrows into a root module, no inputs, no
+    outputs, and a root you could not click. Three properties rule that shape
+    out, and each is mechanical:
+
+    * V21a — data visibly enters and leaves: at least one `external` node with
+      only outgoing master edges (a source) and one with only incoming (a sink).
+    * V21b — every macro block is clickable: a non-leaf master node must `opens`
+      an existing chart, or be expanded by one.
+    * V21c — no hub: no master node touches more than `master_hub_fraction` of
+      the master's edges. A package tree always fails this; a pipeline never
+      does.
+    """
+    if not ws.config.require_operational_master:
+        return
+    master = ws.master
+    if master is None:
+        return
+    nodes = list(master.nodes)
+    edges = list(master.edges)
+    if not nodes:
+        return
+
+    out_deg: dict[str, int] = {n.id: 0 for n in nodes}
+    in_deg: dict[str, int] = {n.id: 0 for n in nodes}
+    for e in edges:
+        if e.from_.node in out_deg:
+            out_deg[e.from_.node] += 1
+        if e.to.node in in_deg:
+            in_deg[e.to.node] += 1
+
+    sources = [n for n in nodes if n.kind == "external" and out_deg[n.id] > 0 and in_deg[n.id] == 0]
+    sinks = [n for n in nodes if n.kind == "external" and in_deg[n.id] > 0 and out_deg[n.id] == 0]
+    if not sources or not sinks:
+        report.add(
+            Finding(
+                "V21", ERROR,
+                f"master has {len(sources)} external source(s) and {len(sinks)} external sink(s); "
+                "it needs at least one of each",
+                hint="D14: the master is the operational flow. Add `kind: external` nodes for "
+                     "what the program reads (config, kernels, data files) and for every "
+                     "artefact it writes (results, checkpoints, reports), and wire them in.",
+            )
+        )
+
+    chart_ids = {c.chart_id for c in ws.charts}
+    expanded = {n.expands for n in ws.all_nodes() if n.expands}
+    for n in nodes:
+        if n.kind in _LEAF_KINDS or n.kind == "external":
+            continue
+        if n.opens:
+            if n.opens not in chart_ids:
+                report.add(
+                    Finding(
+                        "V21", ERROR,
+                        f"master node {n.id!r} opens chart {n.opens!r}, which does not exist",
+                        hint="Point `opens` at a real chart id (see `vulcan status` for the list).",
+                    )
+                )
+            continue
+        if n.id in expanded:
+            continue
+        report.add(
+            Finding(
+                "V21", ERROR,
+                f"master block {n.id!r} cannot be clicked through: it neither `opens` a chart "
+                "nor is expanded by one",
+                hint="D14: every macro block on the master must drill into a sheet. Set "
+                     "`opens: <chart_id>` on the node.",
+            )
+        )
+
+    if len(edges) >= _HUB_MIN_EDGES:
+        limit = ws.config.master_hub_fraction
+        for n in nodes:
+            touched = in_deg[n.id] + out_deg[n.id]
+            frac = touched / len(edges)
+            if frac > limit:
+                report.add(
+                    Finding(
+                        "V21", ERROR,
+                        f"master node {n.id!r} is a hub: it touches {touched} of {len(edges)} "
+                        f"edges ({frac:.0%} > {limit:.0%})",
+                        hint="D14: a master where everything points at one node is a package "
+                             "tree, not a flow. Replace containment edges with the dataflow "
+                             "between phases, and move the package structure to its own sheet.",
+                    )
+                )

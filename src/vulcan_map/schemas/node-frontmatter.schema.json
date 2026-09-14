@@ -27,6 +27,7 @@
     "outputs": { "type": "array", "items": { "$ref": "#/$defs/socket" } },
     "covers": { "type": "array", "items": { "type": "string" } },
     "expands": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
+        "opens": { "oneOf": [{ "type": "string" }, { "type": "null" }] },
     "tags": { "type": "array", "items": { "type": "string" } },
     "charts": { "type": "array", "items": { "type": "string" } },
     "origin": { "enum": ["agent", "human"] }

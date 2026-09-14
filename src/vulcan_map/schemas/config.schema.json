@@ -51,7 +51,9 @@
         "require_function_node_per_file": { "type": "boolean" },
         "require_node_per_symbol": { "type": "boolean" },
         "max_nodes_per_sheet": { "type": "integer", "minimum": 2 },
-        "cluster_min_group": { "type": "integer", "minimum": 1 }
+        "cluster_min_group": { "type": "integer", "minimum": 1 },
+        "require_operational_master": { "type": "boolean" },
+        "master_hub_fraction": { "type": "number", "minimum": 0, "maximum": 1 }
       }
     }
   }

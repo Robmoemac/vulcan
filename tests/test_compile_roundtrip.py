@@ -164,8 +164,8 @@ def test_pending_queue_is_not_part_of_the_compiled_tree(repo: Path, mind: Mind) 
 def test_resolved_graph_is_emitted_for_ui(repo: Path, mind: Mind) -> None:
     compile_mod.run(repo, check_only=False)
     resolved = json.loads(mind.resolved_path("master").read_text(encoding="utf-8"))
-    assert len(resolved["nodes"]) == 3
-    assert len(resolved["edges"]) == 4
+    assert len(resolved["nodes"]) == 5
+    assert len(resolved["edges"]) == 6
     assert mind.index_path.exists()
 
 

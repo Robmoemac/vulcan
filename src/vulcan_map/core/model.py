@@ -108,6 +108,10 @@ class Node:
     outputs: tuple[Socket, ...] = ()
     covers: tuple[str, ...] = ()
     expands: str | None = None
+    # D14: the chart this node drills into when double-clicked. `expands` is the
+    # reverse link (a symbol node saying which aggregator it belongs to); `opens`
+    # is the forward one, so a macro block on the master can point at any sheet.
+    opens: str | None = None
     tags: tuple[str, ...] = ()
     pos: tuple[float, float] | None = None
     color: str | None = None
@@ -160,6 +164,7 @@ class Node:
             outputs=tuple(Socket.from_dict(s) for s in sockets.get("outputs", [])),
             covers=tuple(d.get("covers", ())),
             expands=d.get("expands"),
+            opens=d.get("opens"),
             tags=tuple(d.get("tags", ())),
             pos=(float(pos[0]), float(pos[1])) if pos else None,
             color=ui.get("color"),
@@ -190,6 +195,7 @@ class Node:
                 "sockets": sockets,
                 "covers": list(self.covers),
                 "expands": self.expands,
+                "opens": self.opens,
                 "ui": ui,
                 "tags": list(self.tags),
                 "origin": self.origin,

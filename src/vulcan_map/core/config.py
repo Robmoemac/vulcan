@@ -90,6 +90,11 @@ class Config:
     max_nodes_per_sheet: int = 40
     # Clusters smaller than this are merged into one "small files" group.
     cluster_min_group: int = 3
+    # D14: the master must be the operational flow — explicit external inputs
+    # and outputs, every macro block clickable, no hub node — not a package tree.
+    require_operational_master: bool = True
+    # A master node touching more than this fraction of master edges is a hub.
+    master_hub_fraction: float = 0.5
     path: Path | None = None
     raw: dict[str, Any] = field(default_factory=dict)
 
@@ -164,6 +169,8 @@ def load_config(path: Path) -> Config:
         require_node_per_symbol=coverage.get("require_node_per_symbol", True),
         max_nodes_per_sheet=coverage.get("max_nodes_per_sheet", 40),
         cluster_min_group=coverage.get("cluster_min_group", 3),
+        require_operational_master=coverage.get("require_operational_master", True),
+        master_hub_fraction=float(coverage.get("master_hub_fraction", 0.5)),
         path=path,
         raw=raw,
     )

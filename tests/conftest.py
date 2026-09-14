@@ -88,11 +88,12 @@ def _doc(label: str, node_id: str, file: str, symbol: str, inputs, outputs, kind
         "id": node_id,
         "label": label,
         "kind": kind,
-        "source": {"file": file, "symbol": symbol},
         "inputs": inputs,
         "outputs": outputs,
         "origin": "agent",
     }
+    if kind not in ("external", "group"):
+        fm["source"] = {"file": file, "symbol": symbol}
     import yaml
 
     return "---\n" + yaml.safe_dump(fm, sort_keys=False) + "---\n" + BODY.format(label=label, file=file)
@@ -142,6 +143,16 @@ def repo(tmp_path: Path) -> Path:
             [_sock("state0"), _sock("tspan"), _sock("path")],
             [_sock("state0_out"), _sock("tspan_out"), _sock("path_out")],
         ),
+        # D14: the master is an operational flow, so the fixture shows where
+        # data enters (an initial state) and where it leaves (a telemetry file).
+        "io/initial_state.md": _doc(
+            "initial_state", "io.initial_state", "", "",
+            [], [_sock("state0")], kind="external",
+        ),
+        "io/telemetry_file.md": _doc(
+            "telemetry_file", "io.telemetry_file", "", "",
+            [_sock("written")], [], kind="external",
+        ),
     }
     for rel, text in docs.items():
         p = mind.nodes_dir / rel
@@ -173,12 +184,24 @@ def repo(tmp_path: Path) -> Path:
                 "source": {"file": "src/telemetry.py", "symbol": "run"},
                 "origin": "agent",
             },
+            {
+                "id": "io.initial_state", "label": "initial_state",
+                "kind": "external", "doc": "nodes/io/initial_state.md",
+                "origin": "agent",
+            },
+            {
+                "id": "io.telemetry_file", "label": "telemetry_file",
+                "kind": "external", "doc": "nodes/io/telemetry_file.md",
+                "origin": "agent",
+            },
         ],
         "edges": [
+            _edge("io.initial_state", "state0", "telemetry.run", "state0"),
             _edge("telemetry.run", "state0_out", "propagator.propagate_orbit", "state0"),
             _edge("telemetry.run", "tspan_out", "propagator.propagate_orbit", "tspan"),
             _edge("propagator.propagate_orbit", "traj", "telemetry.write_telemetry", "data"),
             _edge("telemetry.run", "path_out", "telemetry.write_telemetry", "path"),
+            _edge("telemetry.write_telemetry", "written_path", "io.telemetry_file", "written"),
         ],
     }
     mind.master_path.write_text(json.dumps(master, indent=2), encoding="utf-8")

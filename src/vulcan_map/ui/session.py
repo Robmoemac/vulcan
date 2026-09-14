@@ -65,6 +65,10 @@ class Session:
             for node in graph.nodes:
                 if node.expands:
                     out.setdefault(node.expands, set()).add(graph.chart_id)
+                # D14: a forward link wins over reverse ones, so a master block
+                # opens exactly the sheet its author chose.
+                if node.opens and node.opens in self.graphs:
+                    out[node.id] = {node.opens}
         return {k: sorted(v) for k, v in sorted(out.items())}
 
     def expansion_for(self, node_id: str, from_chart: str | None = None) -> str | None:

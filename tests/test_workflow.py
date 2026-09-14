@@ -50,9 +50,10 @@ def test_membership_is_generated_from_seeds(repo: Path, mind: Mind) -> None:
     compile_mod.run(repo, check_only=False)
 
     members = flow(mind, "flow")["member_nodes"]
-    # run -> propagate_orbit -> write_telemetry, all reached by traversal
+    # run -> propagate_orbit -> write_telemetry -> the output file, all reached
     assert set(members) == {
-        "telemetry.run", "propagator.propagate_orbit", "telemetry.write_telemetry"
+        "telemetry.run", "propagator.propagate_orbit", "telemetry.write_telemetry",
+        "io.telemetry_file",
     }
 
 
@@ -126,7 +127,8 @@ def test_direction_changes_what_is_reached(repo: Path) -> None:
     up = workflow_mod.compute_closure(
         [workflow_mod.Seed("telemetry.write_telemetry")], ws.charts, ws.all_nodes(), t("upstream")
     )
-    assert set(up.members) > set(down.members)
+    assert "io.initial_state" in up.members and "io.initial_state" not in down.members
+    assert "io.telemetry_file" in down.members and "io.telemetry_file" not in up.members
 
 
 def test_containment_edges_are_not_traversed(repo: Path, mind: Mind) -> None:

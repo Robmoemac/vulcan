@@ -80,6 +80,7 @@ Do NOT end your turn with any of the following, or any paraphrase:
   - "I've mapped the main workflows"
   - "the map is complete" (without a passing proof block)
   - "let me know if you'd like me to continue"
+  - a master chart that is a package/include tree ("everything points at the root")
 
 If you catch yourself composing a sentence like these, you are stopping early.
 The correct action is to run `vulcan status` and keep working.
@@ -184,6 +185,37 @@ edits will not survive and will not change the verdict.
 one file whose symbols share a single name prefix. Split it by hand — a subchart
 with explicit `member_nodes` — or accept the finding as a real limitation of the
 code's structure and say so. Never raise the limit.
+
+### The master is the operational flow, never the package tree (D14)
+
+**The master sheet answers two questions: what does this program produce, and
+how does it tick.** It is read left to right like a Blender node tree:
+
+  inputs  →  configure  →  set up run  →  solve loop  →  outputs
+
+This is rule V21 and it is machine-checked:
+
+  - at least one `kind: external` **source** node (a file, dataset or argument
+    the program reads) and at least one `kind: external` **sink** node (an
+    artefact it writes) must be on the master and wired in;
+  - every non-leaf master node — every phase block — must carry
+    `opens: <chart_id>` naming the sheet that shows how it works, or be expanded
+    by one. A block you cannot double-click is a dead end and fails;
+  - no master node may touch more than half of the master's edges. A tree where
+    thirteen modules point at the root module is a package diagram, not a map,
+    and it fails.
+
+  REQUIRED:  manifest.toml → parse_cli → build_initial_conditions → integrator
+             (callbacks, RHS) → results.csv / checkpoint / report
+  FORBIDDEN: module.gnc → module.spaceagora, module.io → module.spaceagora, ...
+
+**Trace a run to build it.** Start from the entrypoint the user invokes. Follow
+the data: what is read, what each phase turns it into, what is written and
+where. Name blocks by what they *do* in that flow, not by the directory they
+live in. Give every output node a doc that states its schema and who consumes
+it. The module-containment view still exists — put it on a `structure`
+subchart, where V13 coverage reads the `covers` globs — but it is not the
+master.
 
 ### Grounding is checked mechanically — you cannot talk your way past it
 

@@ -219,6 +219,10 @@ more. D13 makes nesting mandatory at every level: no sheet may render more than
 `max_nodes_per_sheet` nodes (V20), and compile clusters oversized sheets into macro
 blocks that open into nested sheets. See §9.2c.
 
+**Revised by D14:** "module-level master" was read too literally and produced a package
+tree. The master is the *operational* flow — explicit inputs, phases, outputs — and the
+module containment view is a separate `structure` sheet. See §9.2d.
+
 ### A10 — "Augment" semantics: mutate in place or version?
 
 **Chosen:** mutate in place. Git is the version history; a bespoke versioning scheme would
@@ -499,6 +503,7 @@ Edges crossing the region boundary are kept and terminate in a `kind: "external"
 | `source.lines` | `[int,int]` | — | advisory; drift is a warning, not an error |
 | `sockets` | object | ✔ | **generated** — lifted from markdown frontmatter, never hand-written |
 | `expands` | node id \| null | — | this node is a finer decomposition of that master node (A9) |
+| `opens` | chart id \| null | — | the sheet this node drills into on double-click (D14). The forward link, for macro blocks on the master; `expands` is the reverse link on their members |
 | `covers` | `[glob]` | ✔² | files this node accounts for. Required on `module`/`group` nodes so V13 can verify coverage without a node per file (D3) |
 | `ui.pos` | `[x,y]` | — | absent ⇒ computed by layout engine; preserved across agent runs (A12) |
 | `origin` | enum | ✔ | `agent \| human` — governs deletion rights (A12) |
@@ -656,6 +661,7 @@ Severity: **E** = error (blocks), **W** = warning (promoted to error under `--st
 | V18 | E | **Workflows (D12):** a workflow chart is seeded, its seeds are real nodes, and it resolves to something |
 | V19 | E | **One symbol, one node:** no two nodes define the same `(file, symbol)` anywhere in the map |
 | V20 | E | **Readability (D13):** no chart renders more than `coverage.max_nodes_per_sheet` nodes (default 40) after clustering |
+| V21 | E | **Operational master (D14):** the master has ≥1 `external` source and ≥1 `external` sink; every non-leaf master node `opens` an existing chart or is expanded by one; no master node touches more than `master_hub_fraction` (0.5) of master edges |
 | V15 | E | Generated blocks on disk match what the compiler would emit (drift detection) |
 | V16 | W | A prose wikilink to another node with no corresponding edge (A4) |
 | V17 | W | `source.lines` no longer bracket the symbol (map is stale vs. current code) |
@@ -1133,6 +1139,51 @@ resolution, in memory in both `compile` and `check`:
 it. The information a reader needs at the top of a sheet is *which* subsystems talk to
 which, and that is exactly what a group node with lifted, counted edges shows.
 
+### 9.2d The master is the operational flow (D14)
+
+**Problem.** The first complete SpaceAGORA master passed every rule and told a reader
+nothing. It was a package tree: thirteen `include`/`using` arrows into the root module,
+no node for anything the program reads, no node for anything it writes, and a root you
+could double-click only to land on the nine `include` wrappers of `src/SpaceAGORA.jl`. The
+owner's questions — *what does it produce, and how does it tick?* — were unanswerable from
+the map. The master-map skill had allowed this by saying "module-level DAG" and nothing
+about what the arrows must mean.
+
+**What the master must be.** A left-to-right pipeline of the program's *operation*, read
+the way a Blender node tree is read:
+
+    inputs  →  configure  →  set up run  →  solve loop  →  outputs
+                                              (campaigns wrap the solve)
+
+* **Inputs and outputs are explicit `external` nodes.** Every file, dataset or artefact the
+  program reads is a source node; every artefact it writes — results tables, bundles,
+  checkpoints, plots, reports, caches — is a sink node, with a doc that states its schema
+  and who consumes it. That is what answers "what can it produce".
+* **Phases are `group` nodes that open a sheet.** Each carries `opens: <chart_id>`,
+  pointing at the module sheet, workflow view or generated block that shows how that phase
+  works. That is what answers "how does it tick", and it is what makes every block
+  clickable. `opens` is the forward link; `expands` on member nodes remains the reverse.
+* **Edges are dataflow between phases**, each with evidence at the call site where the
+  handoff is visible, never containment.
+* **Package structure moves to its own sheet.** The module nodes with their `covers` globs
+  still exist — V13 coverage depends on them — but they live in a `structure` subchart, not
+  on the master.
+
+**Enforcement — V21, three mechanical properties:**
+
+1. *Data visibly enters and leaves:* at least one `external` node with only outgoing master
+   edges and one with only incoming.
+2. *Every block is clickable:* a master node whose kind is not `function`/`struct`/`external`
+   must `opens` an existing chart or be expanded by one.
+3. *No hub:* no master node touches more than `master_hub_fraction` of the master's edges
+   (checked once the master has at least eight). A package tree always fails this; a
+   pipeline never does.
+
+The master-map skill is rewritten around a **"trace a run"** procedure: start from the
+entrypoint the user invokes, follow the data to every artefact written, and name the phases
+by what they do, not where they live. Dependency-graph masters are named as a forbidden
+stopping point.
+
 ### 9.3b Handoff between agents (D10)
 
 A map is not necessarily built by one agent in one sitting. It may be started by
@@ -1506,6 +1557,7 @@ implementation.**
 | D8 | **§8.1** | **`vulcan check` never runs in CI and installs no pre-commit hook.** It runs during map creation and edits — inside the skill's own batch loop, at the completion gate, and on every UI mutation. Staleness is reported by V17, not enforced at merge. | 2026-09-08 |
 | D9 | **A8 / §6.3** | **A subchart is a view over the master node set**, not an independent graph: it references master nodes by ID and may add finer nodes via `expands`, but cannot contradict the master. *Default retained — flagged for ratification (see note below).* | 2026-09-08 |
 | D13 | **§9.2c / A9** | **Readability by nesting is mandatory.** No sheet renders more than `max_nodes_per_sheet` (40) nodes; compile clusters oversized sheets into `group` nodes with generated nested sheets (directory → file → name prefix), lifts edges onto the blocks, and workflows reuse the module hierarchy. Group nodes carry an agent-written doc. Enforced by V20. Force-directed layout was considered and rejected: it compresses a wall, it does not remove one. | 2026-09-13 |
+| D14 | **§9.2d** | **The master chart is the operational flow, not the package tree.** Explicit `external` input and output nodes, phase blocks that `opens` a sheet, dataflow edges between phases; module containment moves to a `structure` subchart. Enforced by V21 (source+sink present, every block clickable, no hub node). | 2026-09-13 |
 | D12 | **§9.2b** | **Cross-cutting workflow views are a first-class chart kind.** A `workflow` chart records agent-chosen *seeds*; the compiler generates `member_nodes` from them by traversing the traced call graph. Existing nodes are borrowed, never duplicated (V19). Enforced by V18. | 2026-09-10 |
 | D11 | **A2 / §8.2** | **"Function-level" means a node per significant symbol** — every function, type, macro, module and non-dunder method — not one node standing in for a file. Enforced by V13e against deterministic per-language enumeration. Supersedes the original reading of D3; it is not an optional deeper pass. | 2026-09-10 |
 | D10 | **§9.3b** | **Completion may never rest on an agent's self-report, from any adapter.** The map must be resumable by any agent, of any vendor, with any context window, without trusting a predecessor. Enforced by a tool-written `HANDOFF.md`, `vulcan status`, and a mandatory `vulcan check --strict --proof` block in every completion report. | 2026-09-09 |
