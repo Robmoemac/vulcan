@@ -73,7 +73,18 @@ vulcan                    # open the UI, scoped to cwd
 vulcan check --strict     # the completion gate
 vulcan worklist --next 8  # next files to map
 vulcan region show sim    # what a region actually covers
+vulcan export             # one HTML file anyone can open — no install, view-only
 ```
+
+### Sharing a map
+
+`vulcan export` writes a single self-contained HTML file (default:
+`vulcan_mind/_build/export/<project>.html`). Send it to anyone; it opens in any
+browser with no network and nothing installed. It has the same read path as the
+app — chart list, node sheets with sockets and noodles, the design document for
+every node, double-click drill-in, search, and shareable deep links
+(`#chart=…&node=…`). It is a **view-only snapshot**: it carries the repo commit
+and the gate verdict at export time, and it has no way to edit the map.
 
 ### Scoping by region
 

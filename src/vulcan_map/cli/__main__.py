@@ -98,6 +98,11 @@ def build_parser() -> argparse.ArgumentParser:
     _add_repo_args(p_ui)
     p_ui.add_argument("--chart", default=None, help="Chart to open (default: master)")
 
+    p_export = sub.add_parser("export", help="Write a self-contained, view-only HTML copy of the map")
+    _add_repo_args(p_export)
+    p_export.add_argument("--out", default=None,
+                          help="Output file (default: vulcan_mind/_build/export/<project>.html)")
+
     sub.add_parser("doctor", help="Check conda, environment and PATH shims")
 
     p_shim = sub.add_parser("install-shim", help="Install the cross-shell `vulcan` launcher")
@@ -126,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     from . import (
-        cmd_check, cmd_compile, cmd_doctor, cmd_init, cmd_install_shim,
+        cmd_check, cmd_compile, cmd_doctor, cmd_export, cmd_init, cmd_install_shim,
         cmd_region, cmd_scaffold, cmd_status, cmd_ui, cmd_workflow, cmd_worklist,
     )
 
@@ -141,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         "worklist": cmd_worklist.run,
         "region": cmd_region.run,
         "ui": cmd_ui.run,
+        "export": cmd_export.run,
         "doctor": cmd_doctor.run,
         "install-shim": cmd_install_shim.run,
     }

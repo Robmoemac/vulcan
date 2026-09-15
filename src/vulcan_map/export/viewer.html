@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Vulcan Map</title>
+<style>
+  :root {
+    --bg:#1b1d21; --grid:#212429; --grid2:#282c33; --panel:#1f2228; --panel2:#22262c;
+    --border:#3a414b; --text:#d8dee9; --title:#f2f4f7; --sub:#8b94a3; --dim:#5d6673;
+    --sel:#e0a458; --in:#7fb6d9; --out:#8fd9a8; --edge:#6e7787; --feedback:#c2708a;
+    --k-function:#4c9a7a; --k-module:#4a7fb5; --k-file:#6f7bd1; --k-struct:#b5834a;
+    --k-group:#6b7280; --k-external:#8a5a6d;
+  }
+  * { box-sizing:border-box; }
+  html, body { margin:0; height:100%; background:var(--bg); color:var(--text);
+    font: 13px -apple-system, "Segoe UI", Roboto, sans-serif; overflow:hidden; }
+  #app { display:grid; grid-template-columns: 260px minmax(0,1fr) 400px; grid-template-rows: minmax(0,1fr) 24px; height:100vh; overflow:hidden; }
+  #app > * { min-height:0; min-width:0; }
+  #sidebar { grid-row:1; background:var(--panel); border-right:1px solid var(--border);
+    display:flex; flex-direction:column; min-height:0; }
+  #sidebar .hdr { padding:8px 10px 4px; font-size:10px; letter-spacing:.8px; color:var(--dim); }
+  #search { margin:0 8px 6px; padding:5px 8px; background:var(--panel2); color:var(--text);
+    border:1px solid var(--border); border-radius:4px; font:inherit; }
+  #tree { overflow:auto; flex:1; padding-bottom:8px; }
+  .ci { padding:4px 10px; cursor:pointer; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .ci:hover { background:#262a31; }
+  .ci.active { background:#2b3038; color:var(--title); }
+  .ci.master::before { content:"◆ "; color:var(--sub); }
+  .ci .n { color:var(--dim); font-size:11px; margin-left:6px; }
+  #canvaswrap { grid-row:1; position:relative; min-width:0; overflow:hidden; }
+  #toolbar { position:absolute; top:8px; left:8px; display:flex; gap:6px; z-index:2; }
+  #toolbar button, #open { background:var(--panel2); color:var(--text); border:1px solid var(--border);
+    border-radius:4px; padding:4px 10px; font:inherit; cursor:pointer; }
+  #toolbar button:disabled { color:var(--dim); cursor:default; }
+  #crumbs { position:absolute; top:8px; right:8px; color:var(--sub); font-size:12px; z-index:2;
+    background:rgba(27,29,33,.85); padding:4px 8px; border-radius:4px; max-width:60%;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  canvas { display:block; width:100%; height:100%; }
+  #doc { grid-row:1; background:var(--panel); border-left:1px solid var(--border);
+    display:flex; flex-direction:column; min-height:0; }
+  #doc .dhdr { display:flex; align-items:center; padding:6px 8px; gap:8px; border-bottom:1px solid var(--border); }
+  #doc .dhdr .id { font-weight:600; color:var(--title); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; flex:1; }
+  #docbody { overflow:auto; padding:10px 14px; flex:1; font-size:12px; line-height:1.45; }
+  #docbody h1 { font-size:18px; color:var(--title); margin:0 0 8px; }
+  #docbody h2 { font-size:12px; color:var(--out); text-transform:uppercase; letter-spacing:.6px; margin:16px 0 4px; }
+  #docbody code { background:var(--panel2); color:#e0c087; padding:1px 4px; border-radius:3px; }
+  #docbody pre { background:var(--panel2); padding:8px; overflow:auto; }
+  #docbody table { border-collapse:collapse; margin:6px 0; font-size:11px; }
+  #docbody th, #docbody td { border:1px solid var(--border); padding:3px 7px; text-align:left; vertical-align:top; }
+  #docbody th { background:#2b3038; }
+  #docbody a { color:var(--in); }
+  #docbody .math { display:block; background:var(--panel2); padding:6px 8px; margin:6px 0;
+    font-family: ui-monospace, Consolas, monospace; color:#e0c087; white-space:pre-wrap; }
+  #status { grid-column:1 / span 3; grid-row:2; background:var(--panel); border-top:1px solid var(--border);
+    color:var(--sub); font-size:11px; padding:4px 10px; display:flex; gap:18px; white-space:nowrap; overflow:hidden; }
+  #status .snap { color:var(--dim); margin-left:auto; }
+  .empty { color:var(--dim); padding:12px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="sidebar">
+    <div class="hdr">CHARTS</div>
+    <input id="search" placeholder="Search nodes and charts…" autocomplete="off">
+    <div id="tree"></div>
+  </div>
+  <div id="canvaswrap">
+    <div id="toolbar">
+      <button id="back" disabled>← Back</button>
+      <button id="fit">Fit</button>
+      <button id="up" disabled>↑ Parent</button>
+    </div>
+    <div id="crumbs"></div>
+    <canvas id="c"></canvas>
+  </div>
+  <div id="doc">
+    <div class="dhdr"><span class="id" id="docid">No node selected</span></div>
+    <div id="docbody"><p class="empty">Select a node to read its design document. Double-click a block to open it.</p></div>
+  </div>
+  <div id="status"><span id="st1"></span><span id="st2"></span><span class="snap" id="snap"></span></div>
+</div>
+<script>
+/*__VULCAN_DATA__*/
+</script>
+<script>
+(function () {
+  const D = window.VULCAN;
+  const K = { W: 210, TITLE: 30, ROW: 22, PAD: 10, R: 5.5, CORNER: 7 };
+  const KIND = { function:'#4c9a7a', module:'#4a7fb5', file:'#6f7bd1', struct:'#b5834a', group:'#6b7280', external:'#8a5a6d' };
+  const cv = document.getElementById('c'), ctx = cv.getContext('2d');
+  const tree = document.getElementById('tree'), search = document.getElementById('search');
+  const docid = document.getElementById('docid'), docbody = document.getElementById('docbody');
+  const crumbs = document.getElementById('crumbs'), backBtn = document.getElementById('back'), upBtn = document.getElementById('up');
+
+  let chart = null, view = { x: 0, y: 0, s: 1 }, selected = null, hover = null;
+  const trail = [];
+  let nodeBox = {};  // id -> {x,y,w,h,node}
+
+  // ---------- chart list ----------
+  const order = Object.keys(D.charts).sort((a, b) => (a === 'master' ? -1 : b === 'master' ? 1 : a.localeCompare(b)));
+  function chartLabel(id) { return D.charts[id].title; }
+  function renderTree(filter) {
+    tree.innerHTML = '';
+    const f = (filter || '').toLowerCase();
+    for (const id of order) {
+      const c = D.charts[id];
+      if (f && !(id.toLowerCase().includes(f) || c.title.toLowerCase().includes(f)) &&
+          !c.nodes.some(n => n.label.toLowerCase().includes(f) || n.id.toLowerCase().includes(f))) continue;
+      const el = document.createElement('div');
+      el.className = 'ci' + (c.kind === 'master' ? ' master' : '') + (id === chart ? ' active' : '');
+      const depth = c.kind === 'master' ? 0 : ((D.hierarchy[id] || {}).derives_from === 'master' ? 1 : 2 + ((id.match(/-/g) || []).length - 1));
+      el.style.paddingLeft = (10 + Math.min(depth, 6) * 12) + 'px';
+      el.innerHTML = `<span>${esc(c.title)}</span><span class="n">${c.nodes.length}</span>`;
+      el.title = id;
+      el.onclick = () => openChart(id, true);
+      tree.appendChild(el);
+    }
+  }
+  search.oninput = () => renderTree(search.value);
+
+  // ---------- geometry ----------
+  function layoutBoxes() {
+    nodeBox = {};
+    const c = D.charts[chart];
+    let fx = 80, fy = 80;
+    for (const n of c.nodes) {
+      const rows = Math.max(n.inputs.length, n.outputs.length, 1);
+      const h = K.TITLE + K.PAD * 2 + rows * K.ROW;
+      let [x, y] = n.pos || [fx, fy];
+      if (!n.pos) { fy += h + 40; }
+      nodeBox[n.id] = { x, y, w: K.W, h, node: n };
+    }
+  }
+  function socketPos(id, sock, isOut) {
+    const b = nodeBox[id]; if (!b) return null;
+    const list = isOut ? b.node.outputs : b.node.inputs;
+    let i = list.findIndex(s => s.id === sock); if (i < 0) i = 0;
+    return { x: b.x + (isOut ? b.w : 0), y: b.y + K.TITLE + K.PAD + i * K.ROW + K.ROW / 2 };
+  }
+  function bounds() {
+    const bs = Object.values(nodeBox); if (!bs.length) return { x: 0, y: 0, w: 1, h: 1 };
+    const x0 = Math.min(...bs.map(b => b.x)), y0 = Math.min(...bs.map(b => b.y));
+    const x1 = Math.max(...bs.map(b => b.x + b.w)), y1 = Math.max(...bs.map(b => b.y + b.h));
+    return { x: x0, y: y0, w: x1 - x0, h: y1 - y0 };
+  }
+  function fit() {
+    const b = bounds(), W = cv.clientWidth, H = cv.clientHeight;
+    const s = Math.min(W / (b.w + 120), H / (b.h + 120), 1.25);
+    view.s = Math.max(s, 0.05);
+    view.x = (W - b.w * view.s) / 2 - b.x * view.s;
+    view.y = (H - b.h * view.s) / 2 - b.y * view.s;
+    draw();
+  }
+
+  // ---------- drawing ----------
+  function resize() {
+    const dpr = window.devicePixelRatio || 1;
+    cv.width = cv.clientWidth * dpr; cv.height = cv.clientHeight * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    draw();
+  }
+  function rr(x, y, w, h, r) {
+    ctx.beginPath(); ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); ctx.closePath();
+  }
+  function draw() {
+    const W = cv.clientWidth, H = cv.clientHeight;
+    ctx.save(); ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+    ctx.fillStyle = '#1b1d21'; ctx.fillRect(0, 0, W, H);
+    // grid
+    const step = 40 * view.s;
+    if (step > 6) {
+      ctx.strokeStyle = '#212429'; ctx.lineWidth = 1; ctx.beginPath();
+      for (let x = view.x % step; x < W; x += step) { ctx.moveTo(x, 0); ctx.lineTo(x, H); }
+      for (let y = view.y % step; y < H; y += step) { ctx.moveTo(0, y); ctx.lineTo(W, y); }
+      ctx.stroke();
+    }
+    ctx.translate(view.x, view.y); ctx.scale(view.s, view.s);
+    if (!chart) { ctx.restore(); return; }
+    const c = D.charts[chart];
+    // edges
+    for (const e of c.edges) {
+      const a = socketPos(e.from.node, e.from.socket, true), b = socketPos(e.to.node, e.to.socket, false);
+      if (!a || !b) continue;
+      const sel = selected && (e.from.node === selected || e.to.node === selected);
+      ctx.strokeStyle = sel ? '#e0a458' : (e.kind === 'feedback' ? '#c2708a' : '#6e7787');
+      ctx.lineWidth = sel ? 2.2 : 1.4;
+      ctx.setLineDash(e.kind === 'feedback' ? [6, 4] : []);
+      const slack = Math.max(40, Math.abs(b.x - a.x) * 0.5);
+      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.bezierCurveTo(a.x + slack, a.y, b.x - slack, b.y, b.x, b.y); ctx.stroke();
+      if (e.label && view.s > 0.45) {
+        ctx.setLineDash([]); ctx.fillStyle = '#8b94a3'; ctx.font = '10px sans-serif';
+        ctx.fillText(e.label, (a.x + b.x) / 2 - 12, (a.y + b.y) / 2 - 4);
+      }
+    }
+    ctx.setLineDash([]);
+    // nodes
+    for (const id in nodeBox) {
+      const b = nodeBox[id], n = b.node, acc = KIND[n.kind] || '#6b7280';
+      const dim = !n.in_region;
+      ctx.fillStyle = dim ? '#232529' : '#2b3038'; rr(b.x, b.y, b.w, b.h, K.CORNER); ctx.fill();
+      ctx.fillStyle = dim ? shade(acc, .6) : acc;
+      ctx.save(); rr(b.x, b.y, b.w, b.h, K.CORNER); ctx.clip(); ctx.fillRect(b.x, b.y, b.w, K.TITLE); ctx.restore();
+      ctx.lineWidth = id === selected ? 2 : 1; ctx.strokeStyle = id === selected ? '#e0a458' : (id === hover ? '#5d6673' : '#3a414b');
+      rr(b.x, b.y, b.w, b.h, K.CORNER); ctx.stroke();
+      ctx.fillStyle = dim ? '#8b94a3' : '#f2f4f7'; ctx.font = '600 12px sans-serif';
+      ctx.fillText(clip(n.label, 26), b.x + 10, b.y + 19);
+      if (canDrill(n)) { ctx.fillStyle = 'rgba(242,244,247,.7)'; ctx.font = '11px sans-serif'; ctx.fillText('⤵', b.x + b.w - 16, b.y + 19); }
+      ctx.font = '10px sans-serif';
+      n.inputs.forEach((s, i) => { const y = b.y + K.TITLE + K.PAD + i * K.ROW + K.ROW / 2;
+        ctx.fillStyle = '#7fb6d9'; ctx.beginPath(); ctx.arc(b.x, y, K.R, 0, 7); ctx.fill();
+        ctx.fillStyle = '#8b94a3'; ctx.fillText(s.id, b.x + 12, y + 3.5); });
+      n.outputs.forEach((s, i) => { const y = b.y + K.TITLE + K.PAD + i * K.ROW + K.ROW / 2;
+        ctx.fillStyle = '#8fd9a8'; ctx.beginPath(); ctx.arc(b.x + b.w, y, K.R, 0, 7); ctx.fill();
+        ctx.fillStyle = '#8b94a3'; ctx.textAlign = 'right'; ctx.fillText(s.id, b.x + b.w - 12, y + 3.5); ctx.textAlign = 'left'; });
+    }
+    ctx.restore();
+  }
+  function shade(hex, f) { const n = parseInt(hex.slice(1), 16); const r = (n >> 16) * f | 0, g = ((n >> 8) & 255) * f | 0, b = (n & 255) * f | 0; return `rgb(${r},${g},${b})`; }
+  function clip(s, n) { return s.length > n ? s.slice(0, n - 1) + '…' : s; }
+  function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c])); }
+
+  // ---------- navigation ----------
+  function drillTarget(n) {
+    const t = D.drill[chart + '|' + n.id]; if (t) return t;
+    const ex = D.expands[n.id]; return ex && ex.length ? ex[0] : null;
+  }
+  function canDrill(n) { return !!drillTarget(n); }
+  function openChart(id, remember) {
+    if (!D.charts[id] || id === chart) return;
+    if (remember && chart) trail.push(chart);
+    chart = id; selected = null; layoutBoxes(); renderTree(search.value); updateChrome(); fit();
+    window.history.replaceState(null, '', '#chart=' + encodeURIComponent(id));
+    docid.textContent = 'No node selected';
+    docbody.innerHTML = '<p class="empty">Select a node to read its design document. Double-click a block to open it.</p>';
+  }
+  function updateChrome() {
+    backBtn.disabled = !trail.length;
+    const h = D.hierarchy[chart] || {};
+    upBtn.disabled = !(h.derives_from && D.charts[h.derives_from]);
+    const path = []; let cur = chart;
+    while (cur) { path.unshift(D.charts[cur] ? D.charts[cur].title : cur); cur = (D.hierarchy[cur] || {}).derives_from; if (path.length > 12) break; }
+    crumbs.textContent = path.join('  ›  ');
+    const c = D.charts[chart];
+    document.getElementById('st1').textContent = `${c.nodes.length} nodes · ${c.edges.length} edges`;
+    document.getElementById('st2').textContent = `chart: ${chart}`;
+  }
+  backBtn.onclick = () => { const p = trail.pop(); if (p) openChart(p, false); backBtn.disabled = !trail.length; };
+  upBtn.onclick = () => { const h = D.hierarchy[chart] || {}; if (h.derives_from) openChart(h.derives_from, true); };
+  document.getElementById('fit').onclick = fit;
+
+  function showDoc(n) {
+    docid.textContent = n.id;
+    let html = D.docs[n.id];
+    if (!html) { docbody.innerHTML = `<p class="empty">No document for ${esc(n.id)}.</p>`; return; }
+    // display math: keep the LaTeX readable without a renderer
+    html = html.replace(/\$\$([\s\S]*?)\$\$/g, (_, m) => `<span class="math">${esc(m.trim())}</span>`);
+    const src = n.source && n.source.file ? `<p style="color:#5d6673;margin:0 0 8px">${esc(n.source.file)}${n.source.lines ? ':' + n.source.lines[0] : ''}</p>` : '';
+    docbody.innerHTML = src + html;
+    docbody.querySelectorAll('a[data-node]').forEach(a => { a.onclick = ev => { ev.preventDefault(); jumpToNode(a.dataset.node); }; });
+    docbody.scrollTop = 0;
+  }
+  function jumpToNode(id) {
+    if (nodeBox[id]) { selected = id; showDoc(nodeBox[id].node); centerOn(id);
+      window.history.replaceState(null, '', '#chart=' + encodeURIComponent(chart) + '&node=' + encodeURIComponent(id)); return; }
+    for (const cid of order) if (D.charts[cid].nodes.some(n => n.id === id)) { openChart(cid, true); selected = id; showDoc(nodeBox[id].node); centerOn(id); return; }
+  }
+  function centerOn(id) {
+    const b = nodeBox[id]; if (!b) return;
+    view.s = Math.max(view.s, 0.8);
+    view.x = cv.clientWidth / 2 - (b.x + b.w / 2) * view.s; view.y = cv.clientHeight / 2 - (b.y + b.h / 2) * view.s; draw();
+  }
+
+  // ---------- input ----------
+  function toWorld(ev) { const r = cv.getBoundingClientRect(); return { x: (ev.clientX - r.left - view.x) / view.s, y: (ev.clientY - r.top - view.y) / view.s }; }
+  function hit(p) { for (const id in nodeBox) { const b = nodeBox[id]; if (p.x >= b.x && p.x <= b.x + b.w && p.y >= b.y && p.y <= b.y + b.h) return id; } return null; }
+  let drag = null;
+  cv.addEventListener('mousedown', ev => { drag = { x: ev.clientX, y: ev.clientY, vx: view.x, vy: view.y, moved: false }; });
+  window.addEventListener('mousemove', ev => {
+    if (drag) { const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) drag.moved = true;
+      view.x = drag.vx + dx; view.y = drag.vy + dy; draw(); return; }
+    const h = hit(toWorld(ev)); if (h !== hover) { hover = h; cv.style.cursor = h ? 'pointer' : 'grab'; draw(); }
+  });
+  window.addEventListener('mouseup', ev => {
+    if (!drag) return; const moved = drag.moved; drag = null; if (moved) return;
+    const id = hit(toWorld(ev)); selected = id; draw(); if (id) showDoc(nodeBox[id].node);
+  });
+  cv.addEventListener('dblclick', ev => { const id = hit(toWorld(ev)); if (!id) return; const t = drillTarget(nodeBox[id].node); if (t) openChart(t, true); });
+  cv.addEventListener('wheel', ev => {
+    ev.preventDefault(); const r = cv.getBoundingClientRect(); const mx = ev.clientX - r.left, my = ev.clientY - r.top;
+    const f = Math.exp(-ev.deltaY * 0.0012); const ns = Math.min(3, Math.max(0.05, view.s * f));
+    view.x = mx - (mx - view.x) * (ns / view.s); view.y = my - (my - view.y) * (ns / view.s); view.s = ns; draw();
+  }, { passive: false });
+  window.addEventListener('keydown', ev => { if (ev.key === 'Backspace' && document.activeElement !== search && trail.length) backBtn.onclick(); if (ev.key === 'f' && document.activeElement !== search) fit(); });
+  window.addEventListener('resize', resize);
+
+  // ---------- boot ----------
+  document.getElementById('snap').textContent =
+    `${D.project} · ${D.generator} · commit ${D.repo_commit || '?'} · gate: ${D.verdict} · view-only snapshot`;
+  document.title = `Vulcan Map — ${D.project}`;
+  renderTree('');
+  resize();
+  // Deep links: #chart=<id>&node=<id> — so a URL to a specific block can be shared.
+  function fromHash() {
+    const q = new URLSearchParams(location.hash.replace(/^#/, ''));
+    const c = q.get('chart'), n = q.get('node');
+    if (c && D.charts[c]) openChart(c, false); else openChart(D.charts.master ? 'master' : order[0], false);
+    if (n) jumpToNode(n);
+  }
+  fromHash();
+  // Layout may not have settled on the first frame; fit again once it has.
+  requestAnimationFrame(() => { resize(); if (!selected) fit(); });
+  window.vulcanViewer = { openChart, jumpToNode, fit, data: D };
+})();
+</script>
+</body>
+</html>

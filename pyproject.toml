@@ -25,6 +25,7 @@ where = ["src"]
 [tool.setuptools.package-data]
 vulcan_map = [
     "templates/*",
+    "export/*.html",
     "skills/*.md",
     "skills/**/*.md",
     "schemas/*.json",

@@ -1408,6 +1408,25 @@ Per spec: sidebar lists charts, centre pane is the viewer/editor.
   buried in a CLI.
 - Out-of-region nodes render greyed rather than hidden (§5.3).
 
+### 11.2b View-only export (`vulcan export`)
+
+A map is documentation, and documentation must be shareable with people who will never
+install the tool. `vulcan export` writes one self-contained HTML file: every resolved
+sheet, every node doc rendered to HTML at export time, the chart hierarchy and the
+drill-in table, embedded behind a dependency-free canvas viewer that reproduces the
+app's read path (sidebar, sockets, noodles, doc panel, drill-in, back, search, deep
+links). It loads nothing from the network.
+
+The export is built from a **check-mode compile**, so producing it never mutates the
+map and the picture is exactly what `vulcan check` validated. It is view-only as a
+property of the artefact rather than a mode flag: there is no pending-edit queue in the
+file and no code path that could write one, so P3 holds trivially. The header records
+the repo commit and the gate verdict at export time so a stale snapshot is identifiable.
+
+Not carried over: LaTeX rendering (display math is shown as readable source in a code
+block rather than typeset — a renderer would mean a network dependency or a large
+embedded library), region switching (the export is one region), and any editing.
+
 ### 11.3 Enforcing the invariant in the UI (P3)
 
 The scene is never mutated directly, and the UI never writes a chart file. Dragging a
